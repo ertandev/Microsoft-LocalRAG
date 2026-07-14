@@ -806,3 +806,235 @@
   display: inline-block;
   vertical-align: middle;
 }
+
+/* Sidebar Search Styling */
+.sidebar-search-container {
+  padding: 0 20px;
+  margin-top: 10px;
+}
+
+.sidebar-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 8px 12px;
+  transition: all 0.2s;
+}
+
+.sidebar-search-wrapper:focus-within {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.1);
+}
+
+.search-input-icon {
+  color: #64748b;
+  margin-right: 8px;
+}
+
+.sidebar-search-input {
+  background: transparent;
+  border: none;
+  color: #f1f5f9;
+  font-size: 0.85rem;
+  width: 100%;
+  outline: none;
+  font-family: inherit;
+}
+
+.sidebar-search-input::placeholder {
+  color: #64748b;
+}
+
+/* Mentions Menu Styling */
+.mentions-dropdown-menu {
+  position: absolute;
+  bottom: 80px;
+  left: 20px;
+  right: 20px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(16px);
+  padding: 6px;
+}
+
+.mentions-header {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 600;
+  padding: 6px 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  margin-bottom: 4px;
+}
+
+.mention-item-option {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: #cbd5e1;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mention-item-option:hover,
+.mention-item-option.active {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.mention-item-option.empty {
+  color: #64748b;
+  cursor: default;
+  font-style: italic;
+}
+
+.mention-item-option.empty:hover {
+  background: transparent;
+  color: #64748b;
+}
+
+/* Chat Input Mention Wrapper & Badge */
+.input-form-wrapper {
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 14px;
+  padding: 8px;
+  margin-bottom: 20px;
+  transition: all 0.2s;
+}
+
+.input-form-wrapper:focus-within {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.15);
+}
+
+.input-form-wrapper .input-form {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.active-mention-badge {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  margin: 4px 4px 8px 4px;
+  align-self: flex-start;
+  font-weight: 500;
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clear-mention-btn {
+  background: transparent;
+  border: none;
+  color: #3b82f6;
+  font-size: 1rem;
+  line-height: 1;
+  margin-left: 6px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+.clear-mention-btn:hover {
+  color: #ef4444;
+}
+
+/* Pin Buttons and Actions Wrappers */
+.session-actions-wrapper,
+.doc-actions-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pin-session-btn,
+.pin-doc-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s, color 0.2s;
+  padding: 4px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pin-session-btn.active,
+.pin-doc-btn.active {
+  opacity: 0.8 !important;
+  color: #f59e0b !important;
+}
+
+.pin-session-btn:hover,
+.pin-doc-btn:hover {
+  color: #f59e0b;
+}
+
+.session-item:hover .pin-session-btn,
+.doc-item:hover .pin-doc-btn {
+  opacity: 0.6;
+}
+
+.session-item:hover .pin-session-btn:hover,
+.doc-item:hover .pin-doc-btn:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.session-item.pinned {
+  border-left: 3px solid #f59e0b !important;
+}
+
+.doc-item.pinned {
+  border-left: 3px solid #f59e0b !important;
+}
+
+/* List section headers */
+.list-section-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.list-section-header {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #64748b;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0 4px;
+  margin-top: 4px;
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+}
+

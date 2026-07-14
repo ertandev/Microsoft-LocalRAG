@@ -112,6 +112,13 @@ const SpinnerIcon = ({ size = 16, className = "" }) => (
   </svg>
 );
 
+const PinIcon = ({ size = 14, className = "", style = {} }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ display: 'inline-block', verticalAlign: 'middle', ...style }}>
+    <line x1="12" y1="17" x2="12" y2="22" />
+    <path d="M5 17h14v-1.76a2 2 0 0 0-.44-1.24l-2.78-3.48A2 2 0 0 1 15 9.28V5a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v4.28a2 2 0 0 1-.78 1.24l-2.78 3.48A2 2 0 0 0 5 15.24V17z" />
+  </svg>
+);
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -125,7 +132,14 @@ function App() {
   const [uploading, setUploading] = useState(false);
   const [notification, setNotification] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [docSearchQuery, setDocSearchQuery] = useState('');
+  const [showMentionsMenu, setShowMentionsMenu] = useState(false);
+  const [mentionSearchQuery, setMentionSearchQuery] = useState('');
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
+  const [mentionedFile, setMentionedFile] = useState(null);
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   const BACKEND_URL = 'http://localhost:8000';
 
@@ -267,6 +281,46 @@ function App() {
     setDeleteTarget({ type: 'document', filename });
   };
 
+  const handleTogglePinSession = async (e, sessionId, isPinned) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/sessions/${sessionId}/pin`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_pinned: !isPinned })
+      });
+      if (res.ok) {
+        showNotification(isPinned ? "Chat unpinned." : "Chat pinned to the top.", "success");
+        fetchSessions();
+      } else {
+        showNotification("Failed to toggle pin.", "error");
+      }
+    } catch (err) {
+      console.error("Error toggling pin:", err);
+      showNotification("Could not connect to the server.", "error");
+    }
+  };
+
+  const handleTogglePinDocument = async (e, filename, isPinned) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/documents/${encodeURIComponent(filename)}/pin`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_pinned: !isPinned })
+      });
+      if (res.ok) {
+        showNotification(isPinned ? "Document unpinned." : "Document pinned to the top.", "success");
+        fetchDocuments();
+      } else {
+        showNotification("Failed to toggle pin.", "error");
+      }
+    } catch (err) {
+      console.error("Error toggling pin:", err);
+      showNotification("Could not connect to the server.", "error");
+    }
+  };
+
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
 
@@ -342,9 +396,14 @@ function App() {
       setCurrentSessionId(sessionId);
     }
 
-    const userMessage = { role: 'user', content: input };
+    const userMessage = { 
+      role: 'user', 
+      content: input,
+      fileName: mentionedFile ? mentionedFile : undefined
+    };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
+    setMentionedFile(null);
     setLoading(true);
 
     // Kullanıcı mesajını veritabanına kaydet
@@ -353,7 +412,8 @@ function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         role: 'user',
-        content: userMessage.content
+        content: userMessage.content,
+        file_name: userMessage.fileName
       })
     });
 
@@ -361,7 +421,10 @@ function App() {
       const res = await fetch(`${BACKEND_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: userMessage.content })
+        body: JSON.stringify({ 
+          question: userMessage.content,
+          target_file: userMessage.fileName
+        })
       });
 
       if (res.ok) {
@@ -432,6 +495,28 @@ function App() {
           </button>
         </div>
 
+        {/* Search Bar */}
+        {showDocs && (
+          <div className="sidebar-search-container">
+            <div className="sidebar-search-wrapper">
+              <SearchIcon size={14} className="search-input-icon" />
+              <input
+                type="text"
+                placeholder={sidebarTab === 'chats' ? "Search chats..." : "Search documents..."}
+                value={sidebarTab === 'chats' ? chatSearchQuery : docSearchQuery}
+                onChange={(e) => {
+                  if (sidebarTab === 'chats') {
+                    setChatSearchQuery(e.target.value);
+                  } else {
+                    setDocSearchQuery(e.target.value);
+                  }
+                }}
+                className="sidebar-search-input"
+              />
+            </div>
+          </div>
+        )}
+
         {/* Yeni Sohbet Butonu */}
         {sidebarTab === 'chats' && (
           <button className="new-chat-btn" onClick={handleNewChat}>
@@ -466,42 +551,157 @@ function App() {
         <div className="docs-list">
           {sidebarTab === 'chats' ? (
             /* Chat Geçmişi Listesi */
-            sessions.length === 0 ? (
-              <p className="no-docs">No chat history found.</p>
+            sessions.filter(s => s.title.toLowerCase().includes(chatSearchQuery.toLowerCase())).length === 0 ? (
+              <p className="no-docs">No matching chats found.</p>
             ) : (
-              sessions.map(session => (
-                <div 
-                  key={session.id} 
-                  className={`session-item ${currentSessionId === session.id ? 'active' : ''}`}
-                  onClick={() => setCurrentSessionId(session.id)}
-                >
-                  <span className="session-icon"><ChatIcon size={16} /></span>
-                  <div className="session-info">
-                    <p className="session-title">{session.title}</p>
+              <>
+                {/* Pinned Chats Section */}
+                {sessions.filter(s => s.is_pinned && s.title.toLowerCase().includes(chatSearchQuery.toLowerCase())).length > 0 && (
+                  <div className="list-section-wrapper">
+                    <div className="list-section-header">
+                      <PinIcon size={12} style={{ marginRight: '5px', fill: '#f59e0b', color: '#f59e0b' }} />
+                      Pinned Chats
+                    </div>
+                    {sessions
+                      .filter(s => s.is_pinned && s.title.toLowerCase().includes(chatSearchQuery.toLowerCase()))
+                      .map(session => (
+                        <div 
+                          key={session.id} 
+                          className={`session-item ${currentSessionId === session.id ? 'active' : ''} pinned`}
+                          onClick={() => setCurrentSessionId(session.id)}
+                        >
+                          <span className="session-icon"><ChatIcon size={16} /></span>
+                          <div className="session-info">
+                            <p className="session-title">{session.title}</p>
+                          </div>
+                          <div className="session-actions-wrapper">
+                            <button 
+                              className="pin-session-btn active" 
+                              onClick={(e) => handleTogglePinSession(e, session.id, session.is_pinned)}
+                              title="Unpin chat"
+                            >
+                              <PinIcon size={13} style={{ fill: 'currentColor' }} />
+                            </button>
+                            <button className="delete-session-btn" onClick={(e) => handleDeleteSession(e, session.id)} title="Delete chat">
+                              <TrashIcon size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                   </div>
-                  <button className="delete-session-btn" onClick={(e) => handleDeleteSession(e, session.id)}>
-                    <TrashIcon size={14} />
-                  </button>
+                )}
+
+                {/* Recent Chats Section */}
+                <div className="list-section-wrapper">
+                  {sessions.filter(s => s.is_pinned && s.title.toLowerCase().includes(chatSearchQuery.toLowerCase())).length > 0 && (
+                    <div className="list-section-header">Recent Chats</div>
+                  )}
+                  {sessions
+                    .filter(s => !s.is_pinned && s.title.toLowerCase().includes(chatSearchQuery.toLowerCase()))
+                    .map(session => (
+                      <div 
+                        key={session.id} 
+                        className={`session-item ${currentSessionId === session.id ? 'active' : ''}`}
+                        onClick={() => setCurrentSessionId(session.id)}
+                      >
+                        <span className="session-icon"><ChatIcon size={16} /></span>
+                        <div className="session-info">
+                          <p className="session-title">{session.title}</p>
+                        </div>
+                        <div className="session-actions-wrapper">
+                          <button 
+                            className="pin-session-btn" 
+                            onClick={(e) => handleTogglePinSession(e, session.id, session.is_pinned)}
+                            title="Pin chat"
+                          >
+                            <PinIcon size={13} />
+                          </button>
+                          <button className="delete-session-btn" onClick={(e) => handleDeleteSession(e, session.id)} title="Delete chat">
+                            <TrashIcon size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  {sessions.filter(s => !s.is_pinned && s.title.toLowerCase().includes(chatSearchQuery.toLowerCase())).length === 0 && 
+                   sessions.filter(s => s.is_pinned && s.title.toLowerCase().includes(chatSearchQuery.toLowerCase())).length > 0 && (
+                    <p className="no-docs" style={{ margin: '10px 0', fontSize: '0.8rem' }}>No other chats.</p>
+                  )}
                 </div>
-              ))
+              </>
             )
           ) : (
             /* Döküman Listesi */
-            documents.length === 0 ? (
-              <p className="no-docs">No indexed documents found in database.</p>
+            documents.filter(d => d.file_name.toLowerCase().includes(docSearchQuery.toLowerCase())).length === 0 ? (
+              <p className="no-docs">No matching documents found.</p>
             ) : (
-              documents.map((doc, idx) => (
-                <div key={idx} className="doc-item flex-row">
-                  <span className="doc-icon"><DocumentIcon size={18} /></span>
-                  <div className="doc-info">
-                    <p className="doc-name">{doc.file_name}</p>
-                    <span className="doc-chunks">{doc.chunks_count} chunks</span>
+              <>
+                {/* Pinned Documents Section */}
+                {documents.filter(d => d.is_pinned && d.file_name.toLowerCase().includes(docSearchQuery.toLowerCase())).length > 0 && (
+                  <div className="list-section-wrapper">
+                    <div className="list-section-header">
+                      <PinIcon size={12} style={{ marginRight: '5px', fill: '#f59e0b', color: '#f59e0b' }} />
+                      Pinned Documents
+                    </div>
+                    {documents
+                      .filter(d => d.is_pinned && d.file_name.toLowerCase().includes(docSearchQuery.toLowerCase()))
+                      .map((doc, idx) => (
+                        <div key={idx} className="doc-item flex-row pinned">
+                          <span className="doc-icon"><DocumentIcon size={18} /></span>
+                          <div className="doc-info">
+                            <p className="doc-name">{doc.file_name}</p>
+                            <span className="doc-chunks">{doc.chunks_count} chunks</span>
+                          </div>
+                          <div className="doc-actions-wrapper">
+                            <button 
+                              className="pin-doc-btn active" 
+                              onClick={(e) => handleTogglePinDocument(e, doc.file_name, doc.is_pinned)}
+                              title="Unpin document"
+                            >
+                              <PinIcon size={13} style={{ fill: 'currentColor' }} />
+                            </button>
+                            <button className="delete-doc-btn" onClick={(e) => handleDeleteDocument(e, doc.file_name)} title="Delete document">
+                              <TrashIcon size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                   </div>
-                  <button className="delete-doc-btn" onClick={(e) => handleDeleteDocument(e, doc.file_name)}>
-                    <TrashIcon size={14} />
-                  </button>
+                )}
+
+                {/* All Documents Section */}
+                <div className="list-section-wrapper">
+                  {documents.filter(d => d.is_pinned && d.file_name.toLowerCase().includes(docSearchQuery.toLowerCase())).length > 0 && (
+                    <div className="list-section-header">Other Documents</div>
+                  )}
+                  {documents
+                    .filter(d => !d.is_pinned && d.file_name.toLowerCase().includes(docSearchQuery.toLowerCase()))
+                    .map((doc, idx) => (
+                      <div key={idx} className="doc-item flex-row">
+                        <span className="doc-icon"><DocumentIcon size={18} /></span>
+                        <div className="doc-info">
+                          <p className="doc-name">{doc.file_name}</p>
+                          <span className="doc-chunks">{doc.chunks_count} chunks</span>
+                        </div>
+                        <div className="doc-actions-wrapper">
+                          <button 
+                            className="pin-doc-btn" 
+                            onClick={(e) => handleTogglePinDocument(e, doc.file_name, doc.is_pinned)}
+                            title="Pin document"
+                          >
+                            <PinIcon size={13} />
+                          </button>
+                          <button className="delete-doc-btn" onClick={(e) => handleDeleteDocument(e, doc.file_name)} title="Delete document">
+                            <TrashIcon size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  {documents.filter(d => !d.is_pinned && d.file_name.toLowerCase().includes(docSearchQuery.toLowerCase())).length === 0 && 
+                   documents.filter(d => d.is_pinned && d.file_name.toLowerCase().includes(docSearchQuery.toLowerCase())).length > 0 && (
+                    <p className="no-docs" style={{ margin: '10px 0', fontSize: '0.8rem' }}>No other documents.</p>
+                  )}
                 </div>
-              ))
+              </>
             )
           )}
         </div>
@@ -595,17 +795,101 @@ function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        <form className="input-form" onSubmit={handleSendMessage}>
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask the local RAG assistant a question..."
-            disabled={loading}
-          />
-          <button type="submit" disabled={loading || !input.trim()}>
-            Send
-          </button>
+        {/* Autocomplete Mentions Floating Menu */}
+        {showMentionsMenu && (
+          <div className="mentions-dropdown-menu glass-panel">
+            <div className="mentions-header">Filter RAG query by document:</div>
+            {documents.filter(d => d.file_name.toLowerCase().includes(mentionSearchQuery.toLowerCase())).length === 0 ? (
+              <div className="mention-item-option empty">No documents match "{mentionSearchQuery}"</div>
+            ) : (
+              documents
+                .filter(d => d.file_name.toLowerCase().includes(mentionSearchQuery.toLowerCase()))
+                .map((doc, idx) => (
+                  <div
+                    key={idx}
+                    className={`mention-item-option ${selectedMentionIndex === idx ? 'active' : ''}`}
+                    onClick={() => {
+                      setMentionedFile(doc.file_name);
+                      setShowMentionsMenu(false);
+                      // Clear the typed "@" pattern from query input
+                      const words = input.split(' ');
+                      words.pop();
+                      setInput(words.join(' ') + ' ');
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    <DocumentIcon size={14} style={{ marginRight: '6px' }} />
+                    {doc.file_name}
+                  </div>
+                ))
+            )}
+          </div>
+        )}
+
+        <form className="input-form-wrapper" onSubmit={handleSendMessage}>
+          {mentionedFile && (
+            <div className="active-mention-badge">
+              <DocumentIcon size={12} style={{ marginRight: '4px' }} />
+              {mentionedFile}
+              <button 
+                type="button" 
+                className="clear-mention-btn" 
+                onClick={() => setMentionedFile(null)}
+              >
+                &times;
+              </button>
+            </div>
+          )}
+          <div className="input-form">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => {
+                const val = e.target.value;
+                setInput(val);
+
+                // Autocomplete checks
+                const words = val.split(' ');
+                const lastWord = words[words.length - 1];
+                if (lastWord.startsWith('@')) {
+                  setShowMentionsMenu(true);
+                  setMentionSearchQuery(lastWord.slice(1));
+                  setSelectedMentionIndex(0);
+                } else {
+                  setShowMentionsMenu(false);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (showMentionsMenu) {
+                  const filteredDocs = documents.filter(d => d.file_name.toLowerCase().includes(mentionSearchQuery.toLowerCase()));
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedMentionIndex(prev => (prev + 1) % filteredDocs.length);
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSelectedMentionIndex(prev => (prev - 1 + filteredDocs.length) % filteredDocs.length);
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (filteredDocs[selectedMentionIndex]) {
+                      setMentionedFile(filteredDocs[selectedMentionIndex].file_name);
+                      setShowMentionsMenu(false);
+                      const words = input.split(' ');
+                      words.pop();
+                      setInput(words.join(' ') + ' ');
+                    }
+                  } else if (e.key === 'Escape') {
+                    setShowMentionsMenu(false);
+                  }
+                }
+              }}
+              placeholder={mentionedFile ? `Ask RAG only about "${mentionedFile}"...` : "Ask the local RAG assistant a question..."}
+              disabled={loading}
+            />
+            <button type="submit" disabled={loading || !input.trim()}>
+              Send
+            </button>
+          </div>
         </form>
       </div>
 

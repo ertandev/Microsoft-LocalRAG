@@ -86,7 +86,8 @@ def startup_event():
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
                 title TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_pinned INTEGER DEFAULT 0
             )
         """)
         cursor.execute("""
@@ -101,6 +102,19 @@ def startup_event():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS document_metadata (
+                file_name TEXT PRIMARY KEY,
+                is_pinned INTEGER DEFAULT 0
+            )
+        """)
+        
+        # Migrations for existing DB instances
+        try:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN is_pinned INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass # Already exists
+            
         conn.commit()
         conn.close()
 
@@ -127,6 +141,7 @@ class ChatRequest(BaseModel):
 class FileResponse(BaseModel):
     file_name: str
     chunks_count: int
+    is_pinned: bool
 
 @app.get("/api/status")
 def get_status():
@@ -142,10 +157,17 @@ def get_documents():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT file_name, COUNT(*) FROM documents WHERE file_name IS NOT NULL GROUP BY file_name")
+        cursor.execute("""
+            SELECT d.file_name, COUNT(d.text), COALESCE(m.is_pinned, 0)
+            FROM documents d
+            LEFT JOIN document_metadata m ON d.file_name = m.file_name
+            WHERE d.file_name IS NOT NULL
+            GROUP BY d.file_name
+            ORDER BY COALESCE(m.is_pinned, 0) DESC, d.file_name ASC
+        """)
         rows = cursor.fetchall()
         conn.close()
-        return [{"file_name": r[0] if r[0] else "Unknown File", "chunks_count": r[1]} for r in rows]
+        return [{"file_name": r[0] if r[0] else "Unknown File", "chunks_count": r[1], "is_pinned": bool(r[2])} for r in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
@@ -258,10 +280,10 @@ def get_sessions():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT id, title, created_at FROM sessions ORDER BY created_at DESC")
+        cursor.execute("SELECT id, title, created_at, is_pinned FROM sessions ORDER BY is_pinned DESC, created_at DESC")
         rows = cursor.fetchall()
         conn.close()
-        return [{"id": r[0], "title": r[1], "created_at": r[2]} for r in rows]
+        return [{"id": r[0], "title": r[1], "created_at": r[2], "is_pinned": bool(r[3])} for r in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -330,6 +352,33 @@ def delete_session(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class PinToggleRequest(BaseModel):
+    is_pinned: bool
+
+@app.put("/api/sessions/{session_id}/pin")
+def pin_session(session_id: str, request: PinToggleRequest):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE sessions SET is_pinned = ? WHERE id = ?", (int(request.is_pinned), session_id))
+        conn.commit()
+        conn.close()
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/documents/{filename:path}/pin")
+def pin_document(filename: str, request: PinToggleRequest):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO document_metadata (file_name, is_pinned) VALUES (?, ?)", (filename, int(request.is_pinned)))
+        conn.commit()
+        conn.close()
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/upload")
 def upload_document(file: UploadFile = File(...)):
     global embedding_client
@@ -384,6 +433,7 @@ def delete_document(filename: str):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("DELETE FROM documents WHERE file_name = ?", (filename,))
+        cursor.execute("DELETE FROM document_metadata WHERE file_name = ?", (filename,))
         conn.commit()
         conn.close()
         
