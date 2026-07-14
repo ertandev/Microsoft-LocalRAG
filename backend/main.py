@@ -122,6 +122,7 @@ def shutdown_event():
 # Request models
 class ChatRequest(BaseModel):
     question: str
+    target_file: str = None
 
 class FileResponse(BaseModel):
     file_name: str
@@ -144,7 +145,7 @@ def get_documents():
         cursor.execute("SELECT file_name, COUNT(*) FROM documents WHERE file_name IS NOT NULL GROUP BY file_name")
         rows = cursor.fetchall()
         conn.close()
-        return [{"file_name": r[0] if r[0] else "Bilinmeyen Dosya", "chunks_count": r[1]} for r in rows]
+        return [{"file_name": r[0] if r[0] else "Unknown File", "chunks_count": r[1]} for r in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
@@ -155,6 +156,7 @@ def chat_endpoint(request: ChatRequest):
         raise HTTPException(status_code=503, detail="Models are not initialized yet.")
     
     question = request.question.strip()
+    target_file = request.target_file
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
@@ -166,26 +168,37 @@ def chat_endpoint(request: ChatRequest):
         # 2. Retrieve document vectors from SQLite
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT text, embedding, file_name FROM documents")
+        if target_file:
+            cursor.execute("SELECT text, embedding, file_name FROM documents WHERE file_name = ?", (target_file,))
+        else:
+            cursor.execute("SELECT text, embedding, file_name FROM documents")
         rows = cursor.fetchall()
         conn.close()
 
         if not rows:
-            return {
-                "answer": "Veritabanında arama yapmak için hiç belge bulunamadı. Lütfen önce belgeleri dizine ekleyin.",
-                "context": "Veritabanı boş.",
-                "score": 0.0,
-                "file_name": "Yok"
-            }
+            if target_file:
+                return {
+                    "answer": f"No content found for the selected document '{target_file}'. Please make sure it is indexed.",
+                    "context": "No chunks found in database.",
+                    "score": 0.0,
+                    "file_name": target_file
+                }
+            else:
+                return {
+                    "answer": "No documents found in the database to search. Please upload and index documents first.",
+                    "context": "Database is empty.",
+                    "score": 0.0,
+                    "file_name": "None"
+                }
 
         # 3. Calculate similarities
         results = []
         for row in rows:
-            doc_text = row[0]
-            doc_vector = json.loads(row[1])
-            doc_file_name = row[2] if row[2] else "Bilinmeyen Dosya"
-            score = cosine_similarity(query_vector, doc_vector)
-            results.append((doc_text, score, doc_file_name))
+          doc_text = row[0]
+          doc_vector = json.loads(row[1])
+          doc_file_name = row[2] if row[2] else "Unknown File"
+          score = cosine_similarity(query_vector, doc_vector)
+          results.append((doc_text, score, doc_file_name))
 
         # Sort and select the top match
         results.sort(key=lambda x: x[1], reverse=True)
@@ -193,20 +206,20 @@ def chat_endpoint(request: ChatRequest):
 
         # Grounding check: if score is too low, handle gracefully
         if top_score < 0.15:
-            context_text = "Eldeki kaynak metin yetersiz veya alakasız."
+          context_text = "The available source text is insufficient or irrelevant."
         else:
-            context_text = top_text
+          context_text = top_text
 
         # 4. Construct prompt and generate answer
         system_prompt = (
-            "Sen bilgili ve yardımsever bir asistansın.\n"
-            "Sana aşağıda verilen 'KAYNAK METİN'e bağlı kalarak kullanıcının sorusunu yanıtla.\n"
-            "Kurallar:\n"
-            "1. Sadece verilen kaynak metindeki bilgileri kullan.\n"
-            "2. Kaynak metinde olmayan hiçbir şeyi uydurma.\n"
-            "3. Eğer kaynak metin yetersizse veya aranan bilgi yoksa, bunu kibarca belirt ve tahmin yürütme.\n"
-            "4. Türkçe kurallarına uygun, düzgün ve akıcı cevap ver.\n\n"
-            f"KAYNAK METİN:\n{context_text}"
+            "You are a knowledgeable and helpful assistant.\n"
+            "Answer the user's question by strictly adhering to the 'SOURCE TEXT' provided below.\n"
+            "Rules:\n"
+            "1. Use only the information from the provided source text.\n"
+            "2. Do not make up or assume anything not directly mentioned in the source text.\n"
+            "3. If the source text is insufficient or the information is not found, state this politely without guessing.\n"
+            "4. Provide a clear, correct, and fluent response in English.\n\n"
+            f"SOURCE TEXT:\n{context_text}"
         )
 
         response = local_client.chat.completions.create(
@@ -338,11 +351,11 @@ def upload_document(file: UploadFile = File(...)):
         
         raw_text = extract_text(file_path)
         if not raw_text:
-            raise HTTPException(status_code=400, detail="Metin cikarilamadi veya dosya turu desteklenmiyor.")
+            raise HTTPException(status_code=400, detail="Text could not be extracted or the file type is not supported.")
             
         chunks = get_chunks(raw_text)
         if not chunks:
-            raise HTTPException(status_code=400, detail="Dosya bos veya parcalara ayrilamadi.")
+            raise HTTPException(status_code=400, detail="The file is empty or could not be chunked.")
             
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()

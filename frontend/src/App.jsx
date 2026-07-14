@@ -124,12 +124,7 @@ function App() {
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [notification, setNotification] = useState(null);
-  const [confirmDialog, setConfirmDialog] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    onConfirm: null
-  });
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const messagesEndRef = useRef(null);
 
   const BACKEND_URL = 'http://localhost:8000';
@@ -139,24 +134,6 @@ function App() {
     setTimeout(() => {
       setNotification(null);
     }, 4000);
-  };
-
-  const showConfirm = (title, message, onConfirm) => {
-    setConfirmDialog({
-      isOpen: true,
-      title,
-      message,
-      onConfirm
-    });
-  };
-
-  const closeConfirm = () => {
-    setConfirmDialog({
-      isOpen: false,
-      title: '',
-      message: '',
-      onConfirm: null
-    });
   };
 
   // Fetch status and data on component load
@@ -265,15 +242,15 @@ function App() {
         body: formData
       });
       if (res.ok) {
-        showNotification("Belge başarıyla yüklendi ve dizinlendi!", "success");
+        showNotification("Document uploaded and indexed successfully!", "success");
         fetchDocuments();
       } else {
         const err = await res.json();
-        showNotification(`Hata: ${err.detail || 'Dosya yüklenemedi.'}`, "error");
+        showNotification(`Error: ${err.detail || 'Failed to upload file.'}`, "error");
       }
     } catch (err) {
       console.error("Error uploading file:", err);
-      showNotification("Sunucuyla bağlantı kurulamadı.", "error");
+      showNotification("Could not connect to the server.", "error");
     } finally {
       setUploading(false);
       e.target.value = '';
@@ -281,56 +258,67 @@ function App() {
   };
 
   const handleDeleteSession = (e, sessionId) => {
-    e.stopPropagation(); // Sohbet satırına tıklama olayını engelle
-    showConfirm(
-      "Sohbeti Sil",
-      "Bu sohbet geçmişini silmek istediğinizden emin misiniz?",
-      async () => {
-        try {
-          const res = await fetch(`${BACKEND_URL}/api/sessions/${sessionId}`, {
-            method: 'DELETE'
-          });
-          if (res.ok) {
-            setSessions(prev => prev.filter(s => s.id !== sessionId));
-            showNotification("Sohbet geçmişi başarıyla silindi.", "success");
-            if (currentSessionId === sessionId) {
-              setCurrentSessionId(null);
-              setMessages([]);
-            }
-          } else {
-            showNotification("Sohbet geçmişi silinirken hata oluştu.", "error");
-          }
-        } catch (err) {
-          console.error("Error deleting session:", err);
-          showNotification("Sunucuyla bağlantı kurulamadı.", "error");
-        }
-      }
-    );
+    e.stopPropagation(); // Prevent trigger session selection on click
+    setDeleteTarget({ type: 'session', id: sessionId });
   };
 
   const handleDeleteDocument = (e, filename) => {
     e.stopPropagation();
-    showConfirm(
-      "Belgeyi Sil",
-      `"${filename}" belgesini ve tüm veritabanı indekslerini silmek istediğinizden emin misiniz?`,
-      async () => {
-        try {
-          const res = await fetch(`${BACKEND_URL}/api/documents/${encodeURIComponent(filename)}`, {
-            method: 'DELETE'
-          });
-          if (res.ok) {
-            showNotification("Belge ve veritabanı indeksleri başarıyla silindi.", "success");
-            fetchDocuments();
-          } else {
-            const err = await res.json();
-            showNotification(`Hata: ${err.detail || 'Belge silinemedi.'}`, "error");
+    setDeleteTarget({ type: 'document', filename });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+
+    if (deleteTarget.type === 'session') {
+      const sessionId = deleteTarget.id;
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/sessions/${sessionId}`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          showNotification("Chat history deleted successfully.", "success");
+          
+          // Remove the session from UI state
+          setSessions(prev => prev.filter(s => s.id !== sessionId));
+
+          if (currentSessionId === sessionId) {
+            setCurrentSessionId(null);
+            setMessages([]);
+            
+            // If there are other sessions, automatically select the next latest one
+            const remaining = sessions.filter(s => s.id !== sessionId);
+            if (remaining.length > 0) {
+              setCurrentSessionId(remaining[0].id);
+            }
           }
-        } catch (err) {
-          console.error("Error deleting document:", err);
-          showNotification("Sunucuyla bağlantı kurulamadı.", "error");
+        } else {
+          showNotification("An error occurred while deleting chat history.", "error");
         }
+      } catch (err) {
+        console.error("Error deleting session:", err);
+        showNotification("Could not connect to the server.", "error");
       }
-    );
+    } else if (deleteTarget.type === 'document') {
+      const filename = deleteTarget.filename;
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/documents/${encodeURIComponent(filename)}`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          showNotification("Document and database indices deleted successfully.", "success");
+          fetchDocuments();
+        } else {
+          const err = await res.json();
+          showNotification(`Error: ${err.detail || 'Failed to delete document.'}`, "error");
+        }
+      } catch (err) {
+        console.error("Error deleting document:", err);
+        showNotification("Could not connect to the server.", "error");
+      }
+    }
+
+    setDeleteTarget(null);
   };
 
   const handleSendMessage = async (e) => {
@@ -404,14 +392,14 @@ function App() {
         const errorData = await res.json();
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `Hata: ${errorData.detail || 'Bir şeyler ters gitti.'}`
+          content: `Error: ${errorData.detail || 'Something went wrong.'}`
         }]);
       }
     } catch (err) {
       console.error("Chat request failed:", err);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Sunucuyla iletişim kurulamadı. Lütfen FastAPI backend sunucusunun çalıştığından emin olun.'
+        content: 'Could not communicate with the server. Please make sure the FastAPI backend server is running.'
       }]);
     } finally {
       setLoading(false);
@@ -431,13 +419,13 @@ function App() {
             className={`tab-btn ${sidebarTab === 'chats' ? 'active' : ''}`} 
             onClick={() => setSidebarTab('chats')}
           >
-            <ChatIcon size={15} style={{ marginRight: '6px' }} /> Sohbetler
+            <ChatIcon size={15} style={{ marginRight: '6px' }} /> Chats
           </button>
           <button 
             className={`tab-btn ${sidebarTab === 'docs' ? 'active' : ''}`} 
             onClick={() => setSidebarTab('docs')}
           >
-            <DocumentIcon size={15} style={{ marginRight: '6px' }} /> Belgeler
+            <DocumentIcon size={15} style={{ marginRight: '6px' }} /> Documents
           </button>
           <button className="sidebar-toggle" onClick={() => setShowDocs(!showDocs)}>
             {showDocs ? <ChevronLeftIcon size={14} /> : <ChevronRightIcon size={14} />}
@@ -447,7 +435,7 @@ function App() {
         {/* Yeni Sohbet Butonu */}
         {sidebarTab === 'chats' && (
           <button className="new-chat-btn" onClick={handleNewChat}>
-            <PlusIcon size={14} style={{ marginRight: '6px' }} /> Yeni Sohbet Başlat
+            <PlusIcon size={14} style={{ marginRight: '6px' }} /> Start New Chat
           </button>
         )}
 
@@ -457,11 +445,11 @@ function App() {
             <label className={`upload-btn ${uploading ? 'disabled' : ''}`}>
               {uploading ? (
                 <>
-                  <SpinnerIcon size={14} style={{ marginRight: '6px' }} /> Dizinleniyor...
+                  <SpinnerIcon size={14} style={{ marginRight: '6px' }} /> Indexing...
                 </>
               ) : (
                 <>
-                  <PlusIcon size={14} style={{ marginRight: '6px' }} /> Belge Ekle (PDF, Word, ...)
+                  <PlusIcon size={14} style={{ marginRight: '6px' }} /> Add Document (PDF, Word, ...)
                 </>
               )}
               <input 
@@ -479,7 +467,7 @@ function App() {
           {sidebarTab === 'chats' ? (
             /* Chat Geçmişi Listesi */
             sessions.length === 0 ? (
-              <p className="no-docs">Henüz hiç sohbet kaydınız bulunmuyor.</p>
+              <p className="no-docs">No chat history found.</p>
             ) : (
               sessions.map(session => (
                 <div 
@@ -500,14 +488,14 @@ function App() {
           ) : (
             /* Döküman Listesi */
             documents.length === 0 ? (
-              <p className="no-docs">Veritabanında dizinlenmiş belge bulunamadı.</p>
+              <p className="no-docs">No indexed documents found in database.</p>
             ) : (
               documents.map((doc, idx) => (
                 <div key={idx} className="doc-item flex-row">
                   <span className="doc-icon"><DocumentIcon size={18} /></span>
                   <div className="doc-info">
                     <p className="doc-name">{doc.file_name}</p>
-                    <span className="doc-chunks">{doc.chunks_count} parça</span>
+                    <span className="doc-chunks">{doc.chunks_count} chunks</span>
                   </div>
                   <button className="delete-doc-btn" onClick={(e) => handleDeleteDocument(e, doc.file_name)}>
                     <TrashIcon size={14} />
@@ -519,10 +507,10 @@ function App() {
         </div>
         
         <div className="system-status">
-          <h3><SettingsIcon size={15} style={{ marginRight: '6px' }} /> Sistem Durumu</h3>
+          <h3><SettingsIcon size={15} style={{ marginRight: '6px' }} /> System Status</h3>
           <div className="status-indicator">
             <span className={`status-dot ${status.online ? 'online' : 'offline'}`}></span>
-            <span>{status.online ? 'Aktif (Offline Mod)' : 'Bağlantı Kesildi'}</span>
+            <span>{status.online ? 'Active (Offline Mode)' : 'Disconnected'}</span>
           </div>
           <div className="status-detail">
             <p><strong>LLM:</strong> {status.chatModel}</p>
@@ -537,16 +525,16 @@ function App() {
         <header className="chat-header">
           {!showDocs && (
             <button className="sidebar-toggle-btn" onClick={() => setShowDocs(true)}>
-              <DocumentIcon size={14} style={{ marginRight: '6px' }} /> Menü
+              <DocumentIcon size={14} style={{ marginRight: '6px' }} /> Menu
             </button>
           )}
           <h1 style={{ display: 'flex', alignItems: 'center' }}>
             <SparkleIcon size={22} style={{ color: '#3b82f6', marginRight: '10px' }} />
-            Local RAG AI Asistanı
+            Local RAG AI Assistant
           </h1>
           <div className="online-badge">
             <span className="pulse-green"></span>
-            <span>%100 Yerel Güvenli Sunucu</span>
+            <span>100% Local & Secure Server</span>
           </div>
         </header>
 
@@ -554,14 +542,14 @@ function App() {
           {messages.length === 0 ? (
             <div className="welcome-container">
               <div className="welcome-card glass-panel">
-                <h2>Hoş Geldin! <span className="wave">👋</span></h2>
-                <p>Bu uygulama tamamen senin bilgisayarındaki yapay zeka modellerini ve SQLite veritabanını kullanır. İnternete hiçbir veri gönderilmez.</p>
+                <h2>Welcome to Local RAG! <span className="wave">👋</span></h2>
+                <p>This application runs entirely on your local machine using local AI models and SQLite. No data is sent to the internet.</p>
                 <div className="tips">
-                  <h4>Deneyebileceğin Sorular:</h4>
+                  <h4>Suggested Questions:</h4>
                   <ul>
-                    <li>"Yaz okulu eğitimi ne kadar sürecek?"</li>
-                    <li>"Öğrenciler 3. haftada ne yapacaklar?"</li>
-                    <li>"Microsoft stajyerleri projelerini nasıl geliştirir?"</li>
+                    <li>"How long is the summer school training?"</li>
+                    <li>"What will students do in the 3rd week?"</li>
+                    <li>"How do Microsoft interns develop their projects?"</li>
                   </ul>
                 </div>
               </div>
@@ -578,12 +566,12 @@ function App() {
                     <details className="context-accordion">
                       <summary>
                         <SearchIcon size={13} style={{ marginRight: '6px' }} />
-                        Kaynak Belge Detayları (RAG)
+                        Source Document Details (RAG)
                       </summary>
                       <div className="context-details-content">
-                        <p><strong>Kaynak Dosya:</strong> {msg.fileName}</p>
-                        <p><strong>Eşleşen Metin:</strong> {msg.context}</p>
-                        <p><strong>Anlamsal Benzerlik:</strong> %{msg.score}</p>
+                        <p><strong>Source File:</strong> {msg.fileName}</p>
+                        <p><strong>Matched Text:</strong> {msg.context}</p>
+                        <p><strong>Semantic Similarity:</strong> {msg.score}%</p>
                       </div>
                     </details>
                   )}
@@ -612,28 +600,32 @@ function App() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Yerel RAG asistanına bir soru sorun..."
+            placeholder="Ask the local RAG assistant a question..."
             disabled={loading}
           />
           <button type="submit" disabled={loading || !input.trim()}>
-            Gönder
+            Send
           </button>
         </form>
       </div>
 
-      {confirmDialog.isOpen && (
+      {deleteTarget && (
         <div className="confirm-modal-overlay">
           <div className="confirm-modal-content glass-panel">
             <div className="confirm-modal-header">
               <span className="confirm-modal-icon">
                 <WarningIcon size={20} style={{ color: '#ef4444' }} />
               </span>
-              <h3>{confirmDialog.title}</h3>
+              <h3>{deleteTarget.type === 'session' ? 'Delete Chat' : 'Delete Document'}</h3>
             </div>
-            <p className="confirm-modal-message">{confirmDialog.message}</p>
+            <p className="confirm-modal-message">
+              {deleteTarget.type === 'session'
+                ? 'Are you sure you want to delete this chat history?'
+                : `Are you sure you want to delete the document "${deleteTarget.filename}" and all its database indices?`}
+            </p>
             <div className="confirm-modal-actions">
-              <button className="confirm-btn-cancel" onClick={closeConfirm}>İptal</button>
-              <button className="confirm-btn-danger" onClick={() => { confirmDialog.onConfirm(); closeConfirm(); }}>Sil</button>
+              <button className="confirm-btn-cancel" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button className="confirm-btn-danger" onClick={handleConfirmDelete}>Delete</button>
             </div>
           </div>
         </div>
