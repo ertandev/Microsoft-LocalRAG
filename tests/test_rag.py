@@ -23,7 +23,7 @@ try:
     print("Modeller yükleniyor...")
     
     # Arama yapacak olan model
-    embed_model = manager.catalog.get_model("qwen3-embedding-0.6b")
+    embed_model = manager.catalog.get_model("qwen3-embedding-8b")
     embed_model.load()
     embedding_client = embed_model.get_embedding_client()
 

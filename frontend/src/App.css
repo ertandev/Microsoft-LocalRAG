@@ -512,12 +512,11 @@
   background: #ececec;
   border: none;
   color: #171717;
-  font-weight: 600;
   height: 32px;
   width: 32px;
   border-radius: 50%;
   cursor: pointer;
-  transition: opacity 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -526,10 +525,11 @@
 
 .input-form button:hover:not(:disabled) {
   opacity: 0.9;
+  background: #ffffff;
 }
 
 .input-form button:disabled {
-  background: #3c3c3c;
+  background: rgba(255, 255, 255, 0.05);
   color: #676767;
   cursor: not-allowed;
 }
@@ -746,17 +746,19 @@
 /* Mentions Menu Styling */
 .mentions-dropdown-menu {
   position: absolute;
-  bottom: 80px;
-  left: 20px;
-  right: 20px;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 480px;
   background: #2f2f2f;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
-  max-height: 200px;
+  max-height: 150px;
   overflow-y: auto;
   z-index: 100;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
-  padding: 6px;
+  padding: 4px;
 }
 
 .mentions-header {
@@ -923,6 +925,47 @@
   margin-bottom: 2px;
   display: flex;
   align-items: center;
+}
+
+/* Suggested prompt card hover interaction */
+.suggested-prompt-card:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.brand-logo-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Mobile Responsive Adjustments */
+@media (max-width: 768px) {
+  .sidebar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 1000;
+    width: 280px;
+    height: 100%;
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.6);
+  }
+  
+  .sidebar.closed {
+    transform: translateX(-280px);
+    width: 280px; /* Keep width same so text doesn't wrap during transition */
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  
+  .message-wrapper.user .bubble {
+    max-width: 90%;
+  }
+  
+  .input-form-wrapper {
+    width: calc(100% - 24px);
+    margin-bottom: 12px;
+  }
 }
 
 

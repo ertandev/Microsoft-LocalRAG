@@ -28,6 +28,7 @@ manager = None
 embedding_client = None
 local_client = None
 chat_alias = "phi-3.5-mini"
+embedding_alias = "qwen3-embedding-8b"
 
 # Similarity calculation function
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:
@@ -54,7 +55,7 @@ def startup_event():
 
         # Load embedding model
         print("Loading embedding model...")
-        embed_model = manager.catalog.get_model("qwen3-embedding-0.6b")
+        embed_model = manager.catalog.get_model(embedding_alias)
         embed_model.load()
         embedding_client = embed_model.get_embedding_client()
 
@@ -148,7 +149,7 @@ def get_status():
     return {
         "status": "ready",
         "chat_model": chat_alias,
-        "embedding_model": "qwen3-embedding-0.6b",
+        "embedding_model": embedding_alias,
         "api_endpoint": manager.urls[0] if manager and manager.urls else None
     }
 
@@ -222,26 +223,40 @@ def chat_endpoint(request: ChatRequest):
           score = cosine_similarity(query_vector, doc_vector)
           results.append((doc_text, score, doc_file_name))
 
-        # Sort and select the top match
+        # Sort and select the top matches
         results.sort(key=lambda x: x[1], reverse=True)
-        top_text, top_score, top_file_name = results[0]
-
-        # Grounding check: if score is too low, handle gracefully
-        if top_score < 0.15:
-          context_text = "The available source text is insufficient or irrelevant."
+        
+        # Filter matches above threshold
+        valid_matches = [r for r in results if r[1] >= 0.15]
+        
+        if not valid_matches:
+            top_text = results[0][0]
+            top_score = results[0][1]
+            top_file_name = results[0][2]
+            context_text = "The available source text is insufficient or irrelevant."
         else:
-          context_text = top_text
+            # Take top 3 valid matches
+            top_matches = valid_matches[:3]
+            top_text = top_matches[0][0] # Primary context for UI meta
+            top_score = top_matches[0][1]
+            top_file_name = top_matches[0][2]
+            
+            # Combine the texts from the top 3 chunks for context
+            combined_texts = []
+            for idx, (text, score, file_name) in enumerate(top_matches):
+                combined_texts.append(f"[Source {idx+1}: {file_name} (Similarity: {round(score*100, 1)}%)]\n{text}")
+            context_text = "\n\n".join(combined_texts)
 
         # 4. Construct prompt and generate answer
         system_prompt = (
-            "You are a knowledgeable and helpful assistant.\n"
-            "Answer the user's question by strictly adhering to the 'SOURCE TEXT' provided below.\n"
-            "Rules:\n"
-            "1. Use only the information from the provided source text.\n"
-            "2. Do not make up or assume anything not directly mentioned in the source text.\n"
-            "3. If the source text is insufficient or the information is not found, state this politely without guessing.\n"
-            "4. Provide a clear, correct, and fluent response in English.\n\n"
-            f"SOURCE TEXT:\n{context_text}"
+            "You are a local, offline support AI assistant specialized in document-based information retrieval.\n\n"
+            "Behaviour Rules:\n"
+            "- Always prioritize safety. If the procedure or topic involves risk, explicitly call out warnings.\n"
+            "- Do not hallucinate or guess procedures, measurements, timelines, or specifications.\n"
+            "- Answer the user's question by strictly adhering to the 'SOURCE TEXTS' provided below.\n"
+            "- If the answer is not in the provided source texts, state: 'This information is not available in the local knowledge base.'\n"
+            "- Be concise, direct, and structure your responses with bullet points or numbered lists where applicable.\n\n"
+            f"SOURCE TEXTS:\n{context_text}"
         )
 
         response = local_client.chat.completions.create(

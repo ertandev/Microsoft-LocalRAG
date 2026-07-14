@@ -19,7 +19,7 @@ try:
     manager = FoundryLocalManager.instance
 
     # Embedding modelimizi yüklüyoruz (Zaten bilgisayara indiği için hızlıca yüklenecek)
-    embedding_alias = "qwen3-embedding-0.6b"
+    embedding_alias = "qwen3-embedding-8b"
     model = manager.catalog.get_model(embedding_alias)
     model.load()
     embedding_client = model.get_embedding_client()

@@ -37,8 +37,12 @@ const SettingsIcon = ({ size = 16, className = "", style = {} }) => (
 );
 
 const SparkleIcon = ({ size = 20, className = "", style = {} }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} style={{ display: 'inline-block', verticalAlign: 'middle', ...style }}>
-    <path d="M12 2C12 7.5 16.5 12 22 12C16.5 12 12 16.5 12 22C12 16.5 7.5 12 2 12C7.5 12 12 7.5 12 2Z" />
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ display: 'inline-block', verticalAlign: 'middle', ...style }}>
+    {/* Clean custom LocalRAG representation: A node database linking to a document node with a central core */}
+    <rect x="2" y="14" width="8" height="6" rx="2" />
+    <path d="M6 14v-4a4 4 0 0 1 4-4h4" />
+    <rect x="14" y="4" width="8" height="6" rx="2" />
+    <circle cx="14" cy="14" r="3" fill="currentColor" />
   </svg>
 );
 
@@ -237,9 +241,19 @@ function App() {
     }
   };
 
+  const handleSelectSession = (sessionId) => {
+    setCurrentSessionId(sessionId);
+    if (window.innerWidth <= 768) {
+      setShowDocs(false);
+    }
+  };
+
   const handleNewChat = () => {
     setCurrentSessionId(null);
     setMessages([]);
+    if (window.innerWidth <= 768) {
+      setShowDocs(false);
+    }
   };
 
   const handleUploadFile = async (e) => {
@@ -476,8 +490,43 @@ function App() {
     <div className="app-container">
       {/* Sidebar Panel */}
       <div className={`sidebar glass-panel ${showDocs ? 'open' : 'closed'}`}>
+        {/* Brand Header */}
+        <div className="sidebar-brand-header" style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '16px 16px 8px 16px',
+        }}>
+          <button 
+            onClick={handleNewChat} 
+            title="Go to Home / New Chat"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '6px',
+              borderRadius: '8px',
+              color: '#ececec',
+              transition: 'background 0.15s'
+            }}
+            className="brand-logo-btn"
+          >
+            <SparkleIcon size={22} />
+          </button>
+          <button 
+            className="sidebar-toggle" 
+            onClick={() => setShowDocs(!showDocs)}
+            style={{ padding: '6px' }}
+          >
+            {showDocs ? <ChevronLeftIcon size={14} /> : <ChevronRightIcon size={14} />}
+          </button>
+        </div>
+
         {/* Tab Seçiciler */}
-        <div className="sidebar-tabs">
+        <div className="sidebar-tabs" style={{ borderTop: 'none', paddingTop: '4px' }}>
           <button 
             className={`tab-btn ${sidebarTab === 'chats' ? 'active' : ''}`} 
             onClick={() => setSidebarTab('chats')}
@@ -489,9 +538,6 @@ function App() {
             onClick={() => setSidebarTab('docs')}
           >
             <DocumentIcon size={15} style={{ marginRight: '6px' }} /> Documents
-          </button>
-          <button className="sidebar-toggle" onClick={() => setShowDocs(!showDocs)}>
-            {showDocs ? <ChevronLeftIcon size={14} /> : <ChevronRightIcon size={14} />}
           </button>
         </div>
 
@@ -568,7 +614,7 @@ function App() {
                         <div 
                           key={session.id} 
                           className={`session-item ${currentSessionId === session.id ? 'active' : ''} pinned`}
-                          onClick={() => setCurrentSessionId(session.id)}
+                          onClick={() => handleSelectSession(session.id)}
                         >
                           <span className="session-icon"><ChatIcon size={16} /></span>
                           <div className="session-info">
@@ -602,7 +648,7 @@ function App() {
                       <div 
                         key={session.id} 
                         className={`session-item ${currentSessionId === session.id ? 'active' : ''}`}
-                        onClick={() => setCurrentSessionId(session.id)}
+                        onClick={() => handleSelectSession(session.id)}
                       >
                         <span className="session-icon"><ChatIcon size={16} /></span>
                         <div className="session-info">
@@ -729,7 +775,7 @@ function App() {
             </button>
           )}
           <h1 style={{ display: 'flex', alignItems: 'center' }}>
-            <SparkleIcon size={22} style={{ color: '#3b82f6', marginRight: '10px' }} />
+            <SparkleIcon size={20} style={{ color: '#ececec', marginRight: '10px' }} />
             Local RAG AI Assistant
           </h1>
           <div className="online-badge">
@@ -741,16 +787,71 @@ function App() {
         <div className="messages-container">
           {messages.length === 0 ? (
             <div className="welcome-container">
-              <div className="welcome-card glass-panel">
-                <h2>Welcome to Local RAG! <span className="wave">👋</span></h2>
-                <p>This application runs entirely on your local machine using local AI models and SQLite. No data is sent to the internet.</p>
-                <div className="tips">
-                  <h4>Suggested Questions:</h4>
-                  <ul>
-                    <li>"How long is the summer school training?"</li>
-                    <li>"What will students do in the 3rd week?"</li>
-                    <li>"How do Microsoft interns develop their projects?"</li>
-                  </ul>
+              <div className="welcome-card">
+                <div className="welcome-logo" style={{ fontSize: '3rem', marginBottom: '16px', display: 'flex', justifyContent: 'center', color: '#ececec' }}>
+                  <SparkleIcon size={48} style={{ color: '#ececec' }} />
+                </div>
+                <h2>How can I help you today?</h2>
+                <p style={{ color: '#8e8e8f', fontSize: '0.9rem', marginBottom: '32px' }}>
+                  Your local secure RAG assistant. Ask questions based on your indexed documents.
+                </p>
+                <div className="suggested-prompts-grid" style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                  gap: '12px',
+                  width: '100%',
+                  maxWidth: '600px',
+                  margin: '0 auto',
+                  textAlign: 'left'
+                }}>
+                  <div 
+                    className="suggested-prompt-card" 
+                    onClick={() => setQuestion("How long is the summer school training?")}
+                    style={{
+                      padding: '16px',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s ease',
+                      fontSize: '0.85rem',
+                      color: '#ececec'
+                    }}
+                  >
+                    <div style={{ fontWeight: '500', marginBottom: '4px' }}>Summer School Duration</div>
+                    <div style={{ color: '#8e8e8f' }}>Ask about the length of summer training program.</div>
+                  </div>
+                  <div 
+                    className="suggested-prompt-card" 
+                    onClick={() => setQuestion("What will students do in the 3rd week?")}
+                    style={{
+                      padding: '16px',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s ease',
+                      fontSize: '0.85rem',
+                      color: '#ececec'
+                    }}
+                  >
+                    <div style={{ fontWeight: '500', marginBottom: '4px' }}>Weekly Schedule Details</div>
+                    <div style={{ color: '#8e8e8f' }}>Find out what students will do in the third week.</div>
+                  </div>
+                  <div 
+                    className="suggested-prompt-card" 
+                    onClick={() => setQuestion("How do Microsoft interns develop their projects?")}
+                    style={{
+                      padding: '16px',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s ease',
+                      fontSize: '0.85rem',
+                      color: '#ececec'
+                    }}
+                  >
+                    <div style={{ fontWeight: '500', marginBottom: '4px' }}>Intern Projects</div>
+                    <div style={{ color: '#8e8e8f' }}>Learn about project development methods.</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -758,7 +859,7 @@ function App() {
             messages.map((msg, index) => (
               <div key={index} className={`message-wrapper ${msg.role}`}>
                 <div className="avatar">
-                  {msg.role === 'user' ? <UserIcon size={18} /> : <SparkleIcon size={18} style={{ color: '#3b82f6' }} />}
+                  {msg.role === 'user' ? <UserIcon size={18} /> : <SparkleIcon size={18} style={{ color: '#ececec' }} />}
                 </div>
                 <div className="message-content">
                   <div className="bubble">{msg.content}</div>
@@ -795,38 +896,38 @@ function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Autocomplete Mentions Floating Menu */}
-        {showMentionsMenu && (
-          <div className="mentions-dropdown-menu glass-panel">
-            <div className="mentions-header">Filter RAG query by document:</div>
-            {documents.filter(d => d.file_name.toLowerCase().includes(mentionSearchQuery.toLowerCase())).length === 0 ? (
-              <div className="mention-item-option empty">No documents match "{mentionSearchQuery}"</div>
-            ) : (
-              documents
-                .filter(d => d.file_name.toLowerCase().includes(mentionSearchQuery.toLowerCase()))
-                .map((doc, idx) => (
-                  <div
-                    key={idx}
-                    className={`mention-item-option ${selectedMentionIndex === idx ? 'active' : ''}`}
-                    onClick={() => {
-                      setMentionedFile(doc.file_name);
-                      setShowMentionsMenu(false);
-                      // Clear the typed "@" pattern from query input
-                      const words = input.split(' ');
-                      words.pop();
-                      setInput(words.join(' ') + ' ');
-                      inputRef.current?.focus();
-                    }}
-                  >
-                    <DocumentIcon size={14} style={{ marginRight: '6px' }} />
-                    {doc.file_name}
-                  </div>
-                ))
-            )}
-          </div>
-        )}
+        <form className="input-form-wrapper" onSubmit={handleSendMessage} style={{ position: 'relative' }}>
+          {/* Autocomplete Mentions Floating Menu */}
+          {showMentionsMenu && (
+            <div className="mentions-dropdown-menu">
+              <div className="mentions-header">Filter RAG query by document:</div>
+              {documents.filter(d => d.file_name.toLowerCase().includes(mentionSearchQuery.toLowerCase())).length === 0 ? (
+                <div className="mention-item-option empty">No documents match "{mentionSearchQuery}"</div>
+              ) : (
+                documents
+                  .filter(d => d.file_name.toLowerCase().includes(mentionSearchQuery.toLowerCase()))
+                  .map((doc, idx) => (
+                    <div
+                      key={idx}
+                      className={`mention-item-option ${selectedMentionIndex === idx ? 'active' : ''}`}
+                      onClick={() => {
+                        setMentionedFile(doc.file_name);
+                        setShowMentionsMenu(false);
+                        // Clear the typed "@" pattern from query input
+                        const words = input.split(' ');
+                        words.pop();
+                        setInput(words.join(' ') + ' ');
+                        inputRef.current?.focus();
+                      }}
+                    >
+                      <DocumentIcon size={14} style={{ marginRight: '6px' }} />
+                      {doc.file_name}
+                    </div>
+                  ))
+              )}
+            </div>
+          )}
 
-        <form className="input-form-wrapper" onSubmit={handleSendMessage}>
           {mentionedFile && (
             <div className="active-mention-badge">
               <DocumentIcon size={12} style={{ marginRight: '4px' }} />
@@ -886,8 +987,11 @@ function App() {
               placeholder={mentionedFile ? `Ask RAG only about "${mentionedFile}"...` : "Ask the local RAG assistant a question..."}
               disabled={loading}
             />
-            <button type="submit" disabled={loading || !input.trim()}>
-              Send
+            <button type="submit" disabled={loading || !input.trim()} title="Send message">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5" stroke="currentColor" />
+                <polyline points="5 12 12 5 19 12" stroke="currentColor" />
+              </svg>
             </button>
           </div>
         </form>

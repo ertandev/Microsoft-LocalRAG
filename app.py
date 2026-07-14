@@ -27,7 +27,7 @@ def get_foundry_resources():
     manager = FoundryLocalManager.instance
 
     # Modelleri yüklüyoruz
-    embed_model = manager.catalog.get_model("qwen3-embedding-0.6b")
+    embed_model = manager.catalog.get_model("qwen3-embedding-8b")
     embed_model.load()
     
     chat_model = manager.catalog.get_model("phi-3.5-mini")
@@ -67,7 +67,7 @@ if "messages" not in st.session_state:
 # Yan tarafta veritabanı durumunu gösterelim
 with st.sidebar:
     st.header("⚙️ Sistem Durumu")
-    st.success("Embedding Model: qwen3-embedding-0.6b (YÜKLÜ)")
+    st.success("Embedding Model: qwen3-embedding-8b (YÜKLÜ)")
     st.success("Chat Model: phi-3.5-mini (YÜKLÜ)")
     st.info(f"Yerel API Sunucusu: {local_url}")
     

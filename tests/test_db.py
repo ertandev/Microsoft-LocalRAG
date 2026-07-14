@@ -10,7 +10,7 @@ try:
     manager = FoundryLocalManager.instance
 
     # Kelimeleri sayıya çevirecek olan Embedding modelimizi seçiyoruz
-    embedding_alias = "qwen3-embedding-0.6b"
+    embedding_alias = "qwen3-embedding-8b"
     model = manager.catalog.get_model(embedding_alias)
 
     # Eğer model bilgisayarda yoksa indiriyoruz

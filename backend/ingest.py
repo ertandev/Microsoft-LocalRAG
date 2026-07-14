@@ -101,34 +101,72 @@ def extract_text(file_path):
         print(f"Uyarı: '{ext}' dosya türü desteklenmiyor, atlanıyor: {file_path}")
         return None
 
-# 2. Metni Parçalara Ayırma (Chunking) Fonksiyonu
-# Metni yaklaşık 500 karakterlik, birbirini tamamlayan parçalara böler.
-def get_chunks(text, chunk_size=600, overlap=100):
+def get_chunks(text, chunk_size=600, overlap=120):
     if not text:
         return []
     
-    # Metni paragraflara göre bölerek başlıyoruz
-    paragraphs = text.split('\n')
-    chunks = []
-    current_chunk = ""
+    import re
+    # Simple split by sentence endings
+    sentences = re.split(r'(?<=[.?!])\s+', text.strip())
     
-    for p in paragraphs:
-        p = p.strip()
-        if not p:
+    chunks = []
+    current_chunk = []
+    current_length = 0
+    
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
             continue
-            
-        if len(current_chunk) + len(p) < chunk_size:
-            current_chunk += "\n" + p if current_chunk else p
-        else:
+        
+        # If a single sentence exceeds the chunk_size, split by words
+        if len(sentence) > chunk_size:
             if current_chunk:
-                chunks.append(current_chunk)
-            # Yeni parçayı başlat, bir miktar bindirme (overlap) sağlamak için önceki paragrafın sonunu ekleyebiliriz
-            current_chunk = p
+                chunks.append(" ".join(current_chunk))
+                current_chunk = []
+                current_length = 0
+            
+            words = sentence.split(' ')
+            sub_chunk = []
+            sub_len = 0
+            for w in words:
+                if sub_len + len(w) + 1 > chunk_size:
+                    chunks.append(" ".join(sub_chunk))
+                    # Overlap with last 5 words
+                    overlap_words = sub_chunk[-5:] if len(sub_chunk) >= 5 else sub_chunk
+                    sub_chunk = list(overlap_words) + [w]
+                    sub_len = sum(len(x) + 1 for x in sub_chunk)
+                else:
+                    sub_chunk.append(w)
+                    sub_len += len(w) + 1
+            if sub_chunk:
+                current_chunk = sub_chunk
+                current_length = sub_len
+            continue
+
+        if current_length + len(sentence) + 1 > chunk_size:
+            if current_chunk:
+                chunks.append(" ".join(current_chunk))
+            
+            # Form overlap: take last sentences that fit within overlap limit
+            overlap_chunk = []
+            overlap_len = 0
+            for s in reversed(current_chunk):
+                if overlap_len + len(s) + 1 <= overlap:
+                    overlap_chunk.insert(0, s)
+                    overlap_len += len(s) + 1
+                else:
+                    break
+            
+            current_chunk = overlap_chunk + [sentence]
+            current_length = sum(len(x) + 1 for x in current_chunk)
+        else:
+            current_chunk.append(sentence)
+            current_length += len(sentence) + 1
             
     if current_chunk:
-        chunks.append(current_chunk)
+        chunks.append(" ".join(current_chunk))
         
-    return chunks
+    return [c.strip() for c in chunks if c.strip()]
 
 # 3. Ana Çalıştırma Bloğu
 def main():
@@ -156,7 +194,7 @@ def main():
     manager = FoundryLocalManager.instance
 
     print("Embedding modeli yükleniyor...")
-    embed_model = manager.catalog.get_model("qwen3-embedding-0.6b")
+    embed_model = manager.catalog.get_model("qwen3-embedding-8b")
     embed_model.load()
     embedding_client = embed_model.get_embedding_client()
 
