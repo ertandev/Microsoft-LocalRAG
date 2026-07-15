@@ -142,10 +142,32 @@ function App() {
   const [mentionSearchQuery, setMentionSearchQuery] = useState('');
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const [mentionedFile, setMentionedFile] = useState(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [availableModels, setAvailableModels] = useState({ chat: [], embedding: [] });
+  const [switchingModels, setSwitchingModels] = useState(false);
+  const [selectedChatModel, setSelectedChatModel] = useState('');
+  const [selectedEmbeddingModel, setSelectedEmbeddingModel] = useState('');
+  const [showChatboxModelDropdown, setShowChatboxModelDropdown] = useState(false);
+  const [downloadTargetModel, setDownloadTargetModel] = useState(null);
+  const [downloadActive, setDownloadActive] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadModelName, setDownloadModelName] = useState('');
+  const [downloadedMb, setDownloadedMb] = useState(0);
+  const [totalMb, setTotalMb] = useState(0);
+  const [downloadSpeed, setDownloadSpeed] = useState('');
+  const [deleteModelTarget, setDeleteModelTarget] = useState(null);
+  const chatboxDropdownRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
   const BACKEND_URL = 'http://localhost:8000';
+
+  const getModelSizeString = (modelAlias) => {
+    if (!modelAlias) return '';
+    const allModels = [...(availableModels.chat || []), ...(availableModels.embedding || [])];
+    const model = allModels.find(m => m.alias === modelAlias);
+    return model && model.file_size_mb ? `(${(model.file_size_mb / 1024).toFixed(2)} GB)` : '';
+  };
 
   const showNotification = (message, type = 'info') => {
     setNotification({ message, type });
@@ -159,6 +181,7 @@ function App() {
     fetchSystemStatus();
     fetchDocuments();
     fetchSessions();
+    fetchAvailableModels();
   }, []);
 
   // Scroll chat to bottom on new messages
@@ -175,6 +198,63 @@ function App() {
     }
   }, [currentSessionId]);
 
+  // Click outside to close custom chatbox model dropdown
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (chatboxDropdownRef.current && !chatboxDropdownRef.current.contains(event.target)) {
+        setShowChatboxModelDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  // Polling for model download progress
+  useEffect(() => {
+    let intervalId = null;
+    
+    if (downloadActive) {
+      intervalId = setInterval(async () => {
+        try {
+          const res = await fetch(`${BACKEND_URL}/api/models/download-status`);
+          if (res.ok) {
+            const data = await res.json();
+            
+            if (data.status === 'downloading') {
+              setDownloadProgress(data.progress || 0);
+              setDownloadedMb(data.downloaded_mb || 0);
+              setTotalMb(data.total_mb || 0);
+              setDownloadSpeed(data.speed || '');
+            } else if (data.status === 'success') {
+              setDownloadActive(false);
+              showNotification(`Model ${data.model_alias} loaded successfully!`, "success");
+              await fetchSystemStatus();
+              await fetchDocuments();
+            } else if (data.status === 'cancelled') {
+              setDownloadActive(false);
+              showNotification("Download cancelled.", "info");
+              setSelectedChatModel(status.chatModel);
+              setSelectedEmbeddingModel(status.embeddingModel);
+            } else if (data.status === 'error') {
+              setDownloadActive(false);
+              showNotification(`Error downloading model: ${data.error}`, "error");
+              setSelectedChatModel(status.chatModel);
+              setSelectedEmbeddingModel(status.embeddingModel);
+            }
+          }
+        } catch (err) {
+          console.error("Error polling download status:", err);
+        }
+      }, 1000);
+    }
+    
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [downloadActive, status.chatModel, status.embeddingModel]);
+
   const fetchSystemStatus = async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/status`);
@@ -186,12 +266,154 @@ function App() {
           embeddingModel: data.embedding_model,
           apiEndpoint: data.api_endpoint || 'http://localhost:8501 (Local)'
         });
+        setSelectedChatModel(data.chat_model);
+        setSelectedEmbeddingModel(data.embedding_model);
       } else {
         setStatus(prev => ({ ...prev, online: false }));
       }
     } catch (err) {
       console.error("Error fetching system status:", err);
       setStatus(prev => ({ ...prev, online: false }));
+    }
+  };
+
+  const fetchAvailableModels = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/models`);
+      if (res.ok) {
+        const data = await res.json();
+        const chat = data.models.filter(m => m.type === 'chat');
+        const embedding = data.models.filter(m => m.type === 'embedding');
+        setAvailableModels({ chat, embedding });
+      }
+    } catch (err) {
+      console.error("Error fetching available models:", err);
+    }
+  };
+
+  const handleApplyModelSettings = async () => {
+    setSwitchingModels(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/models/select`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_model: selectedChatModel,
+          embedding_model: selectedEmbeddingModel,
+        }),
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === "downloading") {
+          setDownloadModelName(selectedEmbeddingModel);
+          setDownloadProgress(0);
+          setDownloadActive(true);
+        } else {
+          showNotification("Models updated successfully!", "success");
+          await fetchSystemStatus();
+          await fetchDocuments();
+        }
+        setShowSettingsModal(false);
+      } else {
+        const errData = await res.json();
+        showNotification(errData.detail || "Failed to switch models", "error");
+      }
+    } catch (err) {
+      showNotification("Error connecting to server to change models", "error");
+      console.error("Error updating models:", err);
+    } finally {
+      setSwitchingModels(false);
+    }
+  };
+
+  const handleDirectModelSwitch = async (newChatModel, force = false) => {
+    const modelInfo = availableModels.chat.find(m => m.alias === newChatModel);
+    const isCached = modelInfo ? modelInfo.is_cached : true;
+    
+    if (!isCached && !force) {
+      setDownloadTargetModel(newChatModel);
+      return;
+    }
+
+    setSwitchingModels(true);
+    setShowChatboxModelDropdown(false);
+    setDownloadTargetModel(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/models/select`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_model: newChatModel,
+          embedding_model: selectedEmbeddingModel || status.embeddingModel,
+        }),
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === "downloading") {
+          setDownloadModelName(newChatModel);
+          setDownloadProgress(0);
+          setDownloadActive(true);
+        } else {
+          setSelectedChatModel(newChatModel);
+          showNotification(`Switched chat model to ${newChatModel}`, "success");
+          await fetchSystemStatus();
+        }
+      } else {
+        const errData = await res.json();
+        showNotification(errData.detail || "Failed to switch model", "error");
+      }
+    } catch (err) {
+      showNotification("Error connecting to server to change model", "error");
+      console.error("Error updating model:", err);
+    } finally {
+      setSwitchingModels(false);
+    }
+  };
+
+  const handleCancelDownload = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/models/download-cancel`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        showNotification("Cancelling download...", "info");
+      } else {
+        showNotification("Failed to cancel download.", "error");
+      }
+    } catch (err) {
+      console.error("Error cancelling download:", err);
+      showNotification("Error connecting to server to cancel download", "error");
+    }
+  };
+
+  const handleDeleteModel = async (modelAlias) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/models/delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model_alias: modelAlias }),
+      });
+      if (res.ok) {
+        showNotification(`Model ${modelAlias} removed from cache.`, "success");
+        await fetchAvailableModels();
+        await fetchSystemStatus();
+      } else {
+        const errData = await res.json();
+        showNotification(errData.detail || "Failed to delete model", "error");
+      }
+    } catch (err) {
+      console.error("Error deleting model:", err);
+      showNotification("Error connecting to server to delete model", "error");
+    } finally {
+      setDeleteModelTarget(null);
     }
   };
 
@@ -694,8 +916,13 @@ function App() {
                         <div key={idx} className="doc-item flex-row pinned">
                           <span className="doc-icon"><DocumentIcon size={18} /></span>
                           <div className="doc-info">
-                            <p className="doc-name">{doc.file_name}</p>
+                            <p className={`doc-name ${!doc.is_compatible ? 'incompatible' : ''}`}>{doc.file_name}</p>
                             <span className="doc-chunks">{doc.chunks_count} chunks</span>
+                            {!doc.is_compatible && (
+                              <span className="doc-compat-badge" title={`Indexed with ${doc.embedding_model}. Please delete and re-upload to index with current model.`}>
+                                Needs Re-index
+                              </span>
+                            )}
                           </div>
                           <div className="doc-actions-wrapper">
                             <button 
@@ -725,8 +952,13 @@ function App() {
                       <div key={idx} className="doc-item flex-row">
                         <span className="doc-icon"><DocumentIcon size={18} /></span>
                         <div className="doc-info">
-                          <p className="doc-name">{doc.file_name}</p>
+                          <p className={`doc-name ${!doc.is_compatible ? 'incompatible' : ''}`}>{doc.file_name}</p>
                           <span className="doc-chunks">{doc.chunks_count} chunks</span>
+                          {!doc.is_compatible && (
+                            <span className="doc-compat-badge" title={`Indexed with ${doc.embedding_model}. Please delete and re-upload to index with current model.`}>
+                              Needs Re-index
+                            </span>
+                          )}
                         </div>
                         <div className="doc-actions-wrapper">
                           <button 
@@ -753,7 +985,28 @@ function App() {
         </div>
         
         <div className="system-status">
-          <h3><SettingsIcon size={15} style={{ marginRight: '6px' }} /> System Status</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <h3 style={{ margin: 0 }}><SettingsIcon size={15} style={{ marginRight: '6px' }} /> System Status</h3>
+            <button 
+              className="configure-models-btn"
+              onClick={() => setShowSettingsModal(true)}
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                color: '#ececec',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                fontSize: '0.7rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              Configure
+            </button>
+          </div>
           <div className="status-indicator">
             <span className={`status-dot ${status.online ? 'online' : 'offline'}`}></span>
             <span>{status.online ? 'Active (Offline Mode)' : 'Disconnected'}</span>
@@ -987,7 +1240,73 @@ function App() {
               placeholder={mentionedFile ? `Ask RAG only about "${mentionedFile}"...` : "Ask the local RAG assistant a question..."}
               disabled={loading}
             />
-            <button type="submit" disabled={loading || !input.trim()} title="Send message">
+            
+            {/* Custom Gemini-style Chatbox Model Selector */}
+            <div className="chatbox-model-selector-container" ref={chatboxDropdownRef}>
+              <button
+                type="button"
+                className="chatbox-model-selector-btn"
+                onClick={() => setShowChatboxModelDropdown(!showChatboxModelDropdown)}
+                disabled={loading}
+                title="Select chat model"
+              >
+                <span>{selectedChatModel || 'Select Model'}</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="chevron-icon">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+
+              {showChatboxModelDropdown && (
+                <div className="chatbox-model-dropdown glass-panel">
+                  <div className="chatbox-dropdown-header">Select Model</div>
+                  <div className="chatbox-dropdown-scrollable">
+                    <div className="chatbox-dropdown-group-title">Cached (Fast)</div>
+                    {availableModels.chat.filter(m => m.is_cached).map((model, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className={`chatbox-dropdown-item ${selectedChatModel === model.alias ? 'active' : ''}`}
+                        onClick={async () => {
+                          setShowChatboxModelDropdown(false);
+                          await handleDirectModelSwitch(model.alias);
+                        }}
+                      >
+                        <span className="dot-cached"></span>
+                        <span className="model-name">
+                          {model.alias}
+                          <span style={{ opacity: 0.5, fontSize: '0.75rem', marginLeft: '6px' }}>
+                            {model.file_size_mb ? `(${(model.file_size_mb / 1024).toFixed(2)} GB)` : ''}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                    
+                    <div className="chatbox-dropdown-group-title">Available (Requires Download)</div>
+                    {availableModels.chat.filter(m => !m.is_cached).map((model, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className={`chatbox-dropdown-item ${selectedChatModel === model.alias ? 'active' : ''}`}
+                        onClick={async () => {
+                          setShowChatboxModelDropdown(false);
+                          await handleDirectModelSwitch(model.alias);
+                        }}
+                      >
+                        <span className="dot-available"></span>
+                        <span className="model-name">
+                          {model.alias}
+                          <span style={{ opacity: 0.5, fontSize: '0.75rem', marginLeft: '6px' }}>
+                            {model.file_size_mb ? `(${(model.file_size_mb / 1024).toFixed(2)} GB)` : ''}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button className="chatbox-submit-btn" type="submit" disabled={loading || !input.trim()} title="Send message">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="19" x2="12" y2="5" stroke="currentColor" />
                 <polyline points="5 12 12 5 19 12" stroke="currentColor" />
@@ -996,6 +1315,199 @@ function App() {
           </div>
         </form>
       </div>
+
+      {showSettingsModal && (
+        <div className="confirm-modal-overlay">
+          <div className="model-settings-modal-content glass-panel">
+            <div className="model-settings-header">
+              <h3>
+                <SettingsIcon size={18} style={{ color: '#ececec' }} />
+                Advanced Model Configuration
+              </h3>
+              <button 
+                type="button" 
+                className="modal-close-btn" 
+                onClick={() => setShowSettingsModal(false)}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+
+            <div className="settings-form-group">
+              <label>Embedding Model</label>
+              <div className="settings-select-wrapper">
+                <select 
+                  className="settings-select"
+                  value={selectedEmbeddingModel}
+                  onChange={(e) => setSelectedEmbeddingModel(e.target.value)}
+                >
+                  {availableModels.embedding.map((model, idx) => (
+                    <option key={idx} value={model.alias}>
+                      {model.alias} {model.file_size_mb ? `(${(model.file_size_mb / 1024).toFixed(2)} GB)` : ''} {model.is_cached ? '(Cached)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedEmbeddingModel && selectedEmbeddingModel !== status.embeddingModel && (
+                <div className="settings-warning" style={{ color: '#f59e0b', borderColor: 'rgba(245,158,11,0.2)', background: 'rgba(245,158,11,0.05)' }}>
+                  <span className="settings-warning-icon">⚠️</span>
+                  <span>Changing embedding model requires re-indexing documents. Existing indexed files with other embedding models will not be searched in the active chat.</span>
+                </div>
+              )}
+            </div>
+
+            <div className="settings-divider" style={{ margin: '20px 0 16px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}></div>
+            
+            <div className="settings-form-group">
+              <label>Local Disk Space & Cache Manager</label>
+              <span className="settings-description" style={{ fontSize: '0.75rem', color: '#8e8e8f', display: 'block', marginBottom: '10px' }}>
+                Manage locally downloaded model files. Default system models cannot be deleted.
+              </span>
+              
+              <div className="model-cache-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '160px', overflowY: 'auto', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '8px', padding: '10px' }}>
+                {[...(availableModels.chat || []), ...(availableModels.embedding || [])].filter(m => m.is_cached).map((model, idx) => {
+                  const isDefault = ["phi-3.5-mini", "qwen3-embedding-8b", "qwen3-embedding-0.6b"].includes(model.alias);
+                  const isActive = status.chatModel === model.alias || status.embeddingModel === model.alias;
+                  return (
+                    <div key={idx} className="model-cache-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <span style={{ fontWeight: '600', color: '#ececec' }}>{model.alias}</span>
+                        <span style={{ fontSize: '0.7rem', color: '#8e8e8f' }}>
+                          {model.type === 'chat' ? 'Chat LLM' : 'Embedding'} &bull; {model.file_size_mb ? (model.file_size_mb / 1024).toFixed(2) : '0.00'} GB
+                        </span>
+                      </div>
+                      
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {isActive && (
+                          <span style={{ fontSize: '0.7rem', background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.2)', padding: '2px 6px', borderRadius: '4px', fontWeight: '500' }}>Active</span>
+                        )}
+                        {isDefault ? (
+                          <span style={{ fontSize: '0.7rem', background: 'rgba(255,255,255,0.03)', color: '#676767', border: '1px solid rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>System Default</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="delete-model-btn"
+                            style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.15)', color: '#ef4444', cursor: isActive ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '600', padding: '4px 10px', borderRadius: '4px', transition: 'all 0.2s' }}
+                            disabled={isActive}
+                            onClick={() => setDeleteModelTarget(model.alias)}
+                            title={isActive ? "Cannot delete active model" : "Delete model"}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="model-settings-actions">
+              <button 
+                className="confirm-btn-cancel" 
+                onClick={() => setShowSettingsModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="confirm-btn-danger" 
+                style={{ background: '#3b82f6' }}
+                onClick={handleApplyModelSettings}
+                disabled={!selectedEmbeddingModel}
+              >
+                Apply Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {downloadTargetModel && (
+        <div className="confirm-modal-overlay">
+          <div className="confirm-modal-content glass-panel" style={{ maxWidth: '420px' }}>
+            <div className="confirm-modal-header">
+              <span className="confirm-modal-icon" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
+                <WarningIcon size={20} style={{ color: '#f59e0b' }} />
+              </span>
+              <h3>Download Model Confirmation</h3>
+            </div>
+            <p className="confirm-modal-message">
+              The model <strong>{downloadTargetModel}</strong> {getModelSizeString(downloadTargetModel)} is not cached on your system. 
+              Selecting it will trigger a one-time download of approximately <strong>{getModelSizeString(downloadTargetModel).replace(/[()]/g, '')}</strong>, which might take several minutes depending on your internet connection.
+              <br /><br />
+              Do you want to proceed with the download?
+            </p>
+            <div className="confirm-modal-actions">
+              <button className="confirm-btn-cancel" onClick={() => setDownloadTargetModel(null)}>Cancel</button>
+              <button className="confirm-btn-danger" style={{ background: '#3b82f6' }} onClick={() => handleDirectModelSwitch(downloadTargetModel, true)}>
+                Download & Load
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {switchingModels && (
+        <div className="confirm-modal-overlay" style={{ zIndex: 3000 }}>
+          <div className="model-settings-modal-content glass-panel" style={{ textAlign: 'center', maxWidth: '360px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '20px 0' }}>
+              <SpinnerIcon size={36} style={{ color: '#3b82f6' }} />
+              <h3 style={{ margin: 0, color: '#ececec' }}>Loading Model...</h3>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: '#8e8e8f' }}>
+                Configuring and initializing the local engine.
+              </p>
+              <span style={{ fontSize: '0.75rem', color: '#676767' }}>
+                If this is a new model, it may take several minutes to download.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {downloadActive && (
+        <div className="confirm-modal-overlay" style={{ zIndex: 3100 }}>
+          <div className="model-settings-modal-content glass-panel" style={{ maxWidth: '400px', padding: '24px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <SpinnerIcon size={24} style={{ color: '#3b82f6' }} />
+                <h3 style={{ margin: 0, color: '#ececec', fontSize: '1.1rem' }}>Downloading Model</h3>
+              </div>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span style={{ fontSize: '0.85rem', color: '#8e8e8f', wordBreak: 'break-all' }}>
+                  Model: <strong>{downloadModelName}</strong>
+                </span>
+                <span style={{ fontSize: '0.75rem', color: '#676767' }}>
+                  Downloading model files from the catalog. Please keep the app open.
+                </span>
+              </div>
+              
+              <div className="download-progress-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div className="download-progress-bar-track" style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div className="download-progress-bar-fill" style={{ width: `${downloadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', borderRadius: '4px', transition: 'width 0.3s ease-out' }}></div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: '600', color: '#b4b4b4' }}>
+                  <span>{downloadedMb ? (downloadedMb / 1024).toFixed(2) : '0.00'} GB / {totalMb ? (totalMb / 1024).toFixed(2) : '0.00'} GB ({downloadProgress}%)</span>
+                  <span>{downloadSpeed || 'Downloading...'}</span>
+                </div>
+              </div>
+              
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                <button 
+                  className="confirm-btn-cancel" 
+                  style={{ width: 'auto', padding: '8px 16px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+                  onClick={handleCancelDownload}
+                >
+                  Cancel Download
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteTarget && (
         <div className="confirm-modal-overlay">
@@ -1014,6 +1526,28 @@ function App() {
             <div className="confirm-modal-actions">
               <button className="confirm-btn-cancel" onClick={() => setDeleteTarget(null)}>Cancel</button>
               <button className="confirm-btn-danger" onClick={handleConfirmDelete}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteModelTarget && (
+        <div className="confirm-modal-overlay" style={{ zIndex: 3200 }}>
+          <div className="confirm-modal-content glass-panel" style={{ maxWidth: '420px' }}>
+            <div className="confirm-modal-header">
+              <span className="confirm-modal-icon" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>
+                <WarningIcon size={20} style={{ color: '#ef4444' }} />
+              </span>
+              <h3>Delete Model from Cache</h3>
+            </div>
+            <p className="confirm-modal-message">
+              Are you sure you want to remove the model <strong>{deleteModelTarget}</strong> {getModelSizeString(deleteModelTarget)} from your local cache?
+              <br /><br />
+              This will free up disk space, but you will need to re-download the model if you choose to select it again.
+            </p>
+            <div className="confirm-modal-actions">
+              <button className="confirm-btn-cancel" onClick={() => setDeleteModelTarget(null)}>Cancel</button>
+              <button className="confirm-btn-danger" onClick={() => handleDeleteModel(deleteModelTarget)}>Delete Model</button>
             </div>
           </div>
         </div>
