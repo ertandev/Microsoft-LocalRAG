@@ -130,6 +130,22 @@
   border-color: rgba(255, 255, 255, 0.05);
 }
 
+.session-item.loading {
+  position: relative;
+  animation: pulseLoadingSession 1.5s ease-in-out infinite;
+}
+
+.session-item.loading .session-title {
+  color: #8e8e8f;
+  font-style: italic;
+}
+
+@keyframes pulseLoadingSession {
+  0% { opacity: 0.75; }
+  50% { opacity: 1; }
+  100% { opacity: 0.75; }
+}
+
 .session-icon, .doc-icon {
   color: #b4b4b4;
   display: flex;

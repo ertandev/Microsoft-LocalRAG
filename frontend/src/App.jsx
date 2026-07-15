@@ -91,6 +91,20 @@ const InfoIcon = ({ size = 20, className = "", style = {} }) => (
   </svg>
 );
 
+const BoltIcon = ({ size = 12, className = "", style = {} }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ display: 'inline-block', verticalAlign: 'middle', ...style }}>
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+);
+
+const LightbulbIcon = ({ size = 14, className = "", style = {} }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ display: 'inline-block', verticalAlign: 'middle', ...style }}>
+    <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A5 5 0 0 0 8 8c0 1 .3 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
+    <line x1="9" y1="18" x2="15" y2="18" />
+    <line x1="10" y1="22" x2="14" y2="22" />
+  </svg>
+);
+
 const ChevronLeftIcon = ({ size = 16, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ display: 'inline-block', verticalAlign: 'middle' }}>
     <polyline points="15 18 9 12 15 6" />
@@ -126,7 +140,7 @@ const PinIcon = ({ size = 14, className = "", style = {} }) => (
 function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loadingSessions, setLoadingSessions] = useState({});
   const [status, setStatus] = useState({ online: false, chatModel: '-', embeddingModel: '-', apiEndpoint: '-' });
   const [documents, setDocuments] = useState([]);
   const [showDocs, setShowDocs] = useState(true);
@@ -159,12 +173,15 @@ function App() {
   const [deleteModelTarget, setDeleteModelTarget] = useState(null);
   const [reindexingFiles, setReindexingFiles] = useState({});
   const [indexingActiveFiles, setIndexingActiveFiles] = useState({});
-  const [systemStartupState, setSystemStartupState] = useState({
-    status: 'initializing',
-    current_step: 'Checking system status...',
-    model_alias: null,
-    progress: 0,
-    error: null
+  const [systemStartupState, setSystemStartupState] = useState(() => {
+    const alreadyReady = sessionStorage.getItem('backend_already_ready') === 'true';
+    return {
+      status: alreadyReady ? 'ready' : 'initializing',
+      current_step: 'Checking system status...',
+      model_alias: null,
+      progress: alreadyReady ? 100 : 0,
+      error: null
+    };
   });
 
 
@@ -256,6 +273,7 @@ function App() {
           setSystemStartupState(data);
           
           if (data.status === 'ready') {
+            sessionStorage.setItem('backend_already_ready', 'true');
             fetchSystemStatus();
             fetchDocuments();
             fetchSessions();
@@ -324,11 +342,10 @@ function App() {
   // Scroll chat to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, loadingSessions, currentSessionId]);
 
   // Load messages when current session changes
   useEffect(() => {
-    setLoading(false);
     if (currentSessionId) {
       fetchMessages(currentSessionId);
     } else {
@@ -879,7 +896,7 @@ function App() {
   };
 
   const sendMessageText = async (text, fileMention = null) => {
-    if (!text.trim() || loading) return;
+    if (!text.trim() || (currentSessionId && loadingSessions[currentSessionId])) return;
 
     // 1. Eğer aktif sohbet yoksa yeni bir session (oturum) ID'si oluşturuyoruz
     let sessionId = currentSessionId;
@@ -896,6 +913,7 @@ function App() {
         body: JSON.stringify({ id: sessionId, title: tempTitle })
       });
       setCurrentSessionId(sessionId);
+      await fetchSessions();
     }
 
     const activeMention = fileMention || mentionedFile;
@@ -908,7 +926,7 @@ function App() {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setMentionedFile(null);
-    setLoading(true);
+    setLoadingSessions(prev => ({ ...prev, [sessionId]: true }));
 
     // Kullanıcı mesajını veritabanına kaydet
     await fetch(`${BACKEND_URL}/api/sessions/${sessionId}/messages`, {
@@ -976,9 +994,11 @@ function App() {
         }]);
       }
     } finally {
-      if (currentSessionIdRef.current === sessionId) {
-        setLoading(false);
-      }
+      setLoadingSessions(prev => {
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
       // Başlıkları ve seans listesini güncelle
       fetchSessions();
       fetchDocuments();
@@ -1170,10 +1190,16 @@ function App() {
                       .map(session => (
                         <div 
                           key={session.id} 
-                          className={`session-item ${currentSessionId === session.id ? 'active' : ''} pinned`}
+                          className={`session-item ${currentSessionId === session.id ? 'active' : ''} ${loadingSessions[session.id] ? 'loading' : ''} pinned`}
                           onClick={() => handleSelectSession(session.id)}
                         >
-                          <span className="session-icon"><ChatIcon size={16} /></span>
+                          <span className="session-icon">
+                            {loadingSessions[session.id] ? (
+                              <SpinnerIcon size={14} className="spinner-icon" style={{ color: '#3b82f6' }} />
+                            ) : (
+                              <ChatIcon size={16} />
+                            )}
+                          </span>
                           <div className="session-info">
                             <p className="session-title">{session.title}</p>
                           </div>
@@ -1204,10 +1230,16 @@ function App() {
                     .map(session => (
                       <div 
                         key={session.id} 
-                        className={`session-item ${currentSessionId === session.id ? 'active' : ''}`}
+                        className={`session-item ${currentSessionId === session.id ? 'active' : ''} ${loadingSessions[session.id] ? 'loading' : ''}`}
                         onClick={() => handleSelectSession(session.id)}
                       >
-                        <span className="session-icon"><ChatIcon size={16} /></span>
+                        <span className="session-icon">
+                          {loadingSessions[session.id] ? (
+                            <SpinnerIcon size={14} className="spinner-icon" style={{ color: '#3b82f6' }} />
+                          ) : (
+                            <ChatIcon size={16} />
+                          )}
+                        </span>
                         <div className="session-info">
                           <p className="session-title">{session.title}</p>
                         </div>
@@ -1284,7 +1316,7 @@ function App() {
                                       onClick={(e) => handleReindexDocument(e, doc.file_name)}
                                       title={`Not indexed with active model (${status.embeddingModel}). Click to index it now!`}
                                     >
-                                      ⚡ Index with Active
+                                      <BoltIcon size={11} style={{ marginRight: '4px', verticalAlign: '-1px' }} /> Index with Active
                                     </button>
                                   )
                                 )}
@@ -1352,7 +1384,7 @@ function App() {
                                     onClick={(e) => handleReindexDocument(e, doc.file_name)}
                                     title={`Not indexed with active model (${status.embeddingModel}). Click to index it now!`}
                                   >
-                                    ⚡ Index with Active
+                                    <BoltIcon size={11} style={{ marginRight: '4px', verticalAlign: '-1px' }} /> Index with Active
                                   </button>
                                 )
                               )}
@@ -1476,6 +1508,27 @@ function App() {
                     </div>
                   ))}
                 </div>
+                
+                <div className="mention-tip-banner" style={{
+                  marginTop: '24px',
+                  padding: '12px 20px',
+                  borderRadius: '8px',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px dashed rgba(255, 255, 255, 0.12)',
+                  fontSize: '0.8rem',
+                  color: '#8e8e8f',
+                  width: '100%',
+                  maxWidth: '600px',
+                  margin: '24px auto 0 auto',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  justifyContent: 'center',
+                  boxSizing: 'border-box'
+                }}>
+                  <LightbulbIcon size={14} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                  <span><strong>Tip:</strong> Type <strong>@</strong> in the chatbox to filter RAG query context by a specific document!</span>
+                </div>
               </div>
             </div>
           ) : (
@@ -1504,14 +1557,15 @@ function App() {
             ))
           )}
           
-          {loading && (
-            <div className="message-wrapper assistant">
+          {currentSessionId && loadingSessions[currentSessionId] && (
+            <div className="message-wrapper assistant loading-message">
               <div className="avatar">
                 <SparkleIcon size={18} style={{ color: '#3b82f6' }} />
               </div>
               <div className="message-content">
-                <div className="bubble typing-bubble">
-                  <div className="dot-flashing"></div>
+                <div className="bubble typing-bubble" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#8e8e8f', fontSize: '0.82rem', fontStyle: 'italic', padding: '0 4px' }}>
+                  <SpinnerIcon size={12} className="spinner-icon" style={{ color: '#8e8e8f' }} />
+                  <span>Generating response...</span>
                 </div>
               </div>
             </div>
@@ -1608,7 +1662,7 @@ function App() {
                 }
               }}
               placeholder={mentionedFile ? `Ask RAG only about "${mentionedFile}"...` : "Ask the local RAG assistant a question..."}
-              disabled={loading}
+              disabled={currentSessionId && loadingSessions[currentSessionId]}
             />
             
             {/* Custom Gemini-style Chatbox Model Selector */}
@@ -1617,7 +1671,7 @@ function App() {
                 type="button"
                 className="chatbox-model-selector-btn"
                 onClick={() => setShowChatboxModelDropdown(!showChatboxModelDropdown)}
-                disabled={loading}
+                disabled={currentSessionId && loadingSessions[currentSessionId]}
                 title="Select chat model"
               >
                 <span>{selectedChatModel || 'Select Model'}</span>
@@ -1676,7 +1730,7 @@ function App() {
               )}
             </div>
 
-            <button className="chatbox-submit-btn" type="submit" disabled={loading || !input.trim()} title="Send message">
+            <button className="chatbox-submit-btn" type="submit" disabled={(currentSessionId && loadingSessions[currentSessionId]) || !input.trim()} title="Send message">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="19" x2="12" y2="5" stroke="currentColor" />
                 <polyline points="5 12 12 5 19 12" stroke="currentColor" />
