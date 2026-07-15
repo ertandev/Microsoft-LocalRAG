@@ -10,6 +10,7 @@ from typing import List, Dict, Any
 import os
 import threading
 import time
+import psutil
 from foundry_local_sdk import Configuration, FoundryLocalManager
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "knowledge_base.db")
@@ -262,11 +263,11 @@ def run_model_download_in_background(model_alias, chat_or_embed):
             file_size_mb = getattr(model.info, 'file_size_mb', 1000) or 1000
             
         last_time = [time.time()]
-        last_val = [0.0]
+        last_net_bytes = [psutil.net_io_counters().bytes_recv]
             
-        # Detect if it's a ratio (0.0 - 1.0) or raw MBs.
-        # ONNX chat models return ratio, embedding models return MBs.
-        is_ratio = (chat_or_embed == "chat")
+        # Detect if it's a percentage (0.0 - 100.0) or raw MBs.
+        # ONNX chat models return percentage, embedding models return MBs.
+        is_percentage = (chat_or_embed == "chat")
 
         def progress_callback(progress_value):
             global download_state
@@ -275,9 +276,10 @@ def run_model_download_in_background(model_alias, chat_or_embed):
             
             with download_lock:
                 if download_state["status"] == "downloading":
-                    if is_ratio:
-                        percentage = min(round(progress_value * 100, 2), 100.0)
-                        downloaded_mb = progress_value * file_size_mb
+                    if is_percentage:
+                        percentage = min(round(progress_value, 2), 100.0)
+                        ratio = progress_value / 100.0
+                        downloaded_mb = ratio * file_size_mb
                         total_mb = file_size_mb
                     else:
                         total_mb = max(file_size_mb, progress_value)
@@ -289,20 +291,17 @@ def run_model_download_in_background(model_alias, chat_or_embed):
                     download_state["total_mb"] = round(total_mb, 2)
                     
                     if delta_time >= 0.5:
-                        if is_ratio:
-                            delta_mb = (progress_value - last_val[0]) * file_size_mb
-                        else:
-                            delta_mb = progress_value - last_val[0]
-                            
-                        speed_mb_s = delta_mb / delta_time if delta_time > 0 else 0
-                        if speed_mb_s > 100.0:
-                            download_state["speed"] = "Verifying cached files..."
-                        elif speed_mb_s >= 1.0:
+                        current_net_bytes = psutil.net_io_counters().bytes_recv
+                        delta_bytes = current_net_bytes - last_net_bytes[0]
+                        
+                        speed_mb_s = (delta_bytes / delta_time) / (1024 * 1024) if delta_time > 0 else 0
+                        if speed_mb_s >= 1.0:
                             download_state["speed"] = f"{round(speed_mb_s, 1)} MB/s"
                         else:
                             download_state["speed"] = f"{round(speed_mb_s * 1024, 0):.0f} KB/s"
+                        
                         last_time[0] = current_time
-                        last_val[0] = progress_value
+                        last_net_bytes[0] = current_net_bytes
                     
         # Start download
         model.download(progress_callback=progress_callback, cancel_event=cancel_event)

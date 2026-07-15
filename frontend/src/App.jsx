@@ -150,6 +150,7 @@ function App() {
   const [showChatboxModelDropdown, setShowChatboxModelDropdown] = useState(false);
   const [downloadTargetModel, setDownloadTargetModel] = useState(null);
   const [downloadActive, setDownloadActive] = useState(false);
+  const [isDownloadMinimized, setIsDownloadMinimized] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadModelName, setDownloadModelName] = useState('');
   const [downloadedMb, setDownloadedMb] = useState(0);
@@ -320,16 +321,19 @@ function App() {
               setDownloadSpeed(data.speed || '');
             } else if (data.status === 'success') {
               setDownloadActive(false);
+              setIsDownloadMinimized(false);
               showNotification(`Model ${data.model_alias} loaded successfully!`, "success");
               await fetchSystemStatus();
               await fetchDocuments();
             } else if (data.status === 'cancelled') {
               setDownloadActive(false);
+              setIsDownloadMinimized(false);
               showNotification("Download cancelled.", "info");
               setSelectedChatModel(status.chatModel);
               setSelectedEmbeddingModel(status.embeddingModel);
             } else if (data.status === 'error') {
               setDownloadActive(false);
+              setIsDownloadMinimized(false);
               showNotification(`Error downloading model: ${data.error}`, "error");
               setSelectedChatModel(status.chatModel);
               setSelectedEmbeddingModel(status.embeddingModel);
@@ -1540,13 +1544,27 @@ function App() {
         </div>
       )}
 
-      {downloadActive && (
+      {downloadActive && !isDownloadMinimized && (
         <div className="confirm-modal-overlay" style={{ zIndex: 3100 }}>
           <div className="model-settings-modal-content glass-panel" style={{ maxWidth: '400px', padding: '24px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <SpinnerIcon size={24} style={{ color: '#3b82f6' }} />
-                <h3 style={{ margin: 0, color: '#ececec', fontSize: '1.1rem' }}>Downloading Model</h3>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <SpinnerIcon size={24} style={{ color: '#3b82f6' }} />
+                  <h3 style={{ margin: 0, color: '#ececec', fontSize: '1.1rem' }}>Downloading Model</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsDownloadMinimized(true)}
+                  style={{ background: 'transparent', border: 'none', color: '#8e8e8f', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px', borderRadius: '4px', transition: 'background-color 0.2s' }}
+                  title="Minimize to background"
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="4" y1="12" x2="20" y2="12" />
+                  </svg>
+                </button>
               </div>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1634,6 +1652,76 @@ function App() {
             {notification.type === 'info' && <InfoIcon size={20} style={{ color: '#3b82f6' }} />}
           </div>
           <div className="toast-message">{notification.message}</div>
+        </div>
+      )}
+
+      {downloadActive && isDownloadMinimized && (
+        <div 
+          className="glass-panel" 
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            width: '340px',
+            padding: '16px',
+            borderRadius: '12px',
+            zIndex: 3500,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            background: 'rgba(21, 21, 22, 0.92)'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <SpinnerIcon size={16} style={{ color: '#3b82f6' }} />
+              <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#ececec', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>
+                {downloadModelName}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setIsDownloadMinimized(false)}
+                style={{ background: 'transparent', border: 'none', color: '#8e8e8f', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '4px', transition: 'background-color 0.2s' }}
+                title="Expand window"
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelDownload}
+                style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '4px', transition: 'background-color 0.2s' }}
+                title="Cancel download"
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.1)'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          
+          <div className="download-progress-container" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div className="download-progress-bar-track" style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+              <div className="download-progress-bar-fill" style={{ width: `${downloadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', borderRadius: '3px', transition: 'width 0.3s ease-out' }}></div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: '500', color: '#b4b4b4' }}>
+              <span>{downloadedMb ? (downloadedMb / 1024).toFixed(2) : '0.00'} GB / {totalMb ? (totalMb / 1024).toFixed(2) : '0.00'} GB ({downloadProgress}%)</span>
+              <span>{downloadSpeed || 'Downloading...'}</span>
+            </div>
+          </div>
         </div>
       )}
     </div>
