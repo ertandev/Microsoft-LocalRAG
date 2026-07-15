@@ -1175,6 +1175,11 @@ function App() {
         </div>
       </div>
 
+      {/* Sidebar Backdrop for Mobile/Tablet */}
+      {showDocs && (
+        <div className="sidebar-backdrop" onClick={() => setShowDocs(false)} />
+      )}
+
       {/* Sidebar Panel */}
       <div className={`sidebar glass-panel ${showDocs ? 'open' : 'closed'}`}>
         {/* Brand Header */}
@@ -1913,8 +1918,8 @@ function App() {
                 <span>Local RAG Context Count (Top-K)</span>
                 <span style={{ fontSize: '0.8rem', color: '#3b82f6', fontWeight: 'bold' }}>{topK} Chunks</span>
               </label>
-              <span className="settings-description" style={{ fontSize: '0.75rem', color: '#8e8e8f', display: 'block', marginBottom: '8px' }}>
-                Number of document chunks sent to the AI model context window.
+              <span className="settings-description" style={{ fontSize: '0.75rem', color: '#8e8e8f', display: 'block', marginBottom: '8px', lineHeight: '1.4' }}>
+                Determines how many text blocks (paragraphs) from your documents are sent to the AI to help it answer. More blocks provide more context but take more memory.
               </span>
               <input 
                 type="range" 
@@ -1931,8 +1936,8 @@ function App() {
                 <span>Similarity Search Threshold</span>
                 <span style={{ fontSize: '0.8rem', color: '#3b82f6', fontWeight: 'bold' }}>{Math.round(similarityThreshold * 100)}%</span>
               </label>
-              <span className="settings-description" style={{ fontSize: '0.75rem', color: '#8e8e8f', display: 'block', marginBottom: '8px' }}>
-                Minimum cosine similarity score required to match document paragraphs.
+              <span className="settings-description" style={{ fontSize: '0.75rem', color: '#8e8e8f', display: 'block', marginBottom: '8px', lineHeight: '1.4' }}>
+                Filters out blocks that aren't closely related to your question. At 20%, only blocks with at least a 20% relevance match are sent. Higher settings prevent irrelevant answers.
               </span>
               <input 
                 type="range" 
@@ -1947,8 +1952,8 @@ function App() {
             <div className="settings-form-group" style={{ marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <label style={{ margin: 0, display: 'block' }}>Strict Knowledge Base Filter</label>
-                <span className="settings-description" style={{ fontSize: '0.75rem', color: '#8e8e8f', display: 'block', marginTop: '2px' }}>
-                  If active, the AI will refuse to answer when matching context is insufficient.
+                <span className="settings-description" style={{ fontSize: '0.75rem', color: '#8e8e8f', display: 'block', marginTop: '2px', lineHeight: '1.4' }}>
+                  If enabled, the AI strictly stays within your files and will refuse to answer if it can't find relevant facts. If disabled, it falls back to its general knowledge if no match is found.
                 </span>
               </div>
               <div 

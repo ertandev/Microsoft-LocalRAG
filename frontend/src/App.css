@@ -399,9 +399,9 @@
   box-sizing: border-box;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .message-wrapper {
-    padding: 16px 20px;
+    padding: 16px 16px;
   }
 }
 
@@ -990,7 +990,25 @@
 }
 
 /* Mobile Responsive Adjustments */
-@media (max-width: 768px) {
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 999;
+    animation: fadeIn 0.2s ease-out;
+  }
+
   .sidebar {
     position: absolute;
     left: 0;
@@ -1017,6 +1035,124 @@
   .input-form-wrapper {
     width: calc(100% - 24px);
     margin-bottom: 12px;
+  }
+  
+  .confirm-modal-content, .model-settings-modal-content, .chunk-inspector-modal-content {
+    width: 95%;
+    padding: 20px;
+  }
+}
+
+/* Tablet viewports and below (768px and below) */
+@media (max-width: 768px) {
+  .chat-header {
+    padding: 0 16px;
+  }
+
+  .online-badge span:last-child {
+    display: none; /* Hide '100% Local & Secure Server' text, keep dot + short info if modified */
+  }
+
+  .online-badge::after {
+    content: "100% Local";
+    font-size: 0.72rem;
+  }
+
+  .suggested-prompts-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .welcome-card {
+    padding: 20px 12px;
+  }
+
+  .welcome-card h2 {
+    font-size: 1.3rem;
+  }
+}
+
+/* Mobile viewports (480px and below) */
+@media (max-width: 480px) {
+  .chat-header h1 {
+    font-size: 0.9rem;
+  }
+
+  .online-badge {
+    display: none; /* Hide badge entirely on small mobile to make room */
+  }
+
+  .message-wrapper {
+    padding: 12px 12px;
+    gap: 12px;
+  }
+
+  .avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .bubble {
+    font-size: 0.85rem;
+    padding: 10px 14px;
+    max-width: 95%;
+  }
+
+  .suggested-prompts-grid {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  .welcome-card h2 {
+    font-size: 1.25rem;
+  }
+
+  .welcome-card p {
+    font-size: 0.8rem;
+    margin-bottom: 20px;
+  }
+
+  .mention-tip-banner {
+    padding: 8px 12px !important;
+    font-size: 0.72rem !important;
+  }
+
+  .input-form-wrapper {
+    width: calc(100% - 16px);
+    margin-bottom: 8px;
+    border-radius: 20px;
+  }
+
+  .input-form {
+    padding: 4px 8px 4px 12px;
+    border-radius: 20px;
+  }
+
+  .input-form input {
+    font-size: 0.85rem;
+    padding: 6px 0;
+  }
+
+  .confirm-modal-content, .model-settings-modal-content, .chunk-inspector-modal-content {
+    width: 92%;
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  .chunk-inspector-modal-content h3, .model-settings-header h3 {
+    font-size: 1rem;
+  }
+
+  .inspector-meta-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .inspector-text-block {
+    max-height: 180px;
+    font-size: 0.8rem;
+    padding: 12px;
   }
 }
 
