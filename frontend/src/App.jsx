@@ -159,6 +159,14 @@ function App() {
   const [deleteModelTarget, setDeleteModelTarget] = useState(null);
   const [reindexingFiles, setReindexingFiles] = useState({});
   const [indexingActiveFiles, setIndexingActiveFiles] = useState({});
+  const [systemStartupState, setSystemStartupState] = useState({
+    status: 'initializing',
+    current_step: 'Checking system status...',
+    model_alias: null,
+    progress: 0,
+    error: null
+  });
+
 
 
   const chatboxDropdownRef = useRef(null);
@@ -236,12 +244,46 @@ function App() {
     }, 4000);
   };
 
-  // Fetch status and data on component load
+  // Polling for first-time startup/initialization status
   useEffect(() => {
-    fetchSystemStatus();
-    fetchDocuments();
-    fetchSessions();
-    fetchAvailableModels();
+    let intervalId = null;
+    
+    const checkStartupStatus = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/startup-status`);
+        if (res.ok) {
+          const data = await res.json();
+          setSystemStartupState(data);
+          
+          if (data.status === 'ready') {
+            fetchSystemStatus();
+            fetchDocuments();
+            fetchSessions();
+            fetchAvailableModels();
+            if (intervalId) clearInterval(intervalId);
+          }
+        } else {
+          setSystemStartupState(prev => ({
+            ...prev,
+            status: 'initializing',
+            current_step: 'Connecting to backend...'
+          }));
+        }
+      } catch (err) {
+        setSystemStartupState(prev => ({
+          ...prev,
+          status: 'initializing',
+          current_step: 'Waiting for backend server...'
+        }));
+      }
+    };
+    
+    checkStartupStatus();
+    intervalId = setInterval(checkStartupStatus, 800);
+    
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
   }, []);
 
   // Automatic background reconnection polling if backend is offline
@@ -947,9 +989,62 @@ function App() {
     e.preventDefault();
     await sendMessageText(input, mentionedFile);
   };
-
   return (
     <div className="app-container">
+      <div className={`startup-overlay-wrapper ${systemStartupState.status === 'ready' ? 'ready' : ''}`}>
+        <div className="startup-overlay-content glass-panel">
+          <div className="startup-logo-container">
+            <SparkleIcon size={28} style={{ color: '#ececec', position: 'absolute' }} />
+            <div className="startup-logo-spinner"></div>
+          </div>
+          
+          <h2 className="startup-title">Setting up Local RAG AI Assistant</h2>
+          <p className="startup-subtitle">
+            {systemStartupState.speed 
+              ? "On first launch, default AI and embedding models are downloaded and loaded into memory. Please do not close the application and wait."
+              : "Connecting to backend and loading local AI models into memory. Please wait a moment..."}
+          </p>
+          
+          {systemStartupState.status === 'error' ? (
+            <div className="startup-error-container">
+              <ErrorIcon size={24} style={{ color: '#ef4444', display: 'block', margin: '0 auto 8px auto' }} />
+              <p className="startup-error-text">Error: {systemStartupState.current_step}</p>
+              <button className="startup-retry-btn" onClick={() => window.location.reload()}>
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div className="startup-progress-container">
+              <div className="startup-progress-bar-track">
+                <div 
+                  className="startup-progress-bar-fill"
+                  style={{ width: `${systemStartupState.progress}%` }}
+                ></div>
+              </div>
+              <div className="startup-progress-details">
+                <span className="startup-step-text">{systemStartupState.current_step}</span>
+                <span className="startup-percent-text">{Math.round(systemStartupState.progress)}%</span>
+              </div>
+              {systemStartupState.speed && (
+                <div className="startup-download-stats" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#8e8e8f', marginTop: '2px' }}>
+                  <span>Download Speed: {systemStartupState.speed}</span>
+                  <span>
+                    {systemStartupState.downloaded_mb > 0 
+                      ? `${(systemStartupState.downloaded_mb / 1024).toFixed(2)} GB / ${(systemStartupState.total_mb / 1024).toFixed(2)} GB`
+                      : 'Calculating...'}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+          
+          <div className="startup-warning-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+            <WarningIcon size={14} style={{ color: '#f59e0b', flexShrink: 0 }} />
+            <span>Since the models are large, this process may take 5-10 minutes depending on your internet connection speed.</span>
+          </div>
+        </div>
+      </div>
+
       {/* Sidebar Panel */}
       <div className={`sidebar glass-panel ${showDocs ? 'open' : 'closed'}`}>
         {/* Brand Header */}
@@ -2000,12 +2095,12 @@ function App() {
                 ) : fileState.status === 'success' ? (
                   <span style={{ fontSize: '0.7rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <SuccessIcon size={12} style={{ color: '#10b981' }} />
-                    Dizinlendi ({fileState.total_chunks} chunks)
+                    Indexed ({fileState.total_chunks} chunks)
                   </span>
                 ) : (
                   <span style={{ fontSize: '0.7rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '4px' }} title={fileState.error}>
                     <ErrorIcon size={12} style={{ color: '#ef4444' }} />
-                    Hata: {fileState.error ? (fileState.error.length > 30 ? fileState.error.substring(0, 30) + '...' : fileState.error) : 'Bilinmeyen hata'}
+                    Error: {fileState.error ? (fileState.error.length > 30 ? fileState.error.substring(0, 30) + '...' : fileState.error) : 'Unknown error'}
                   </span>
                 )}
               </div>

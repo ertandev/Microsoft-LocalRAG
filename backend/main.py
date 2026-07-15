@@ -46,9 +46,22 @@ download_state = {
 download_cancel_event = None
 download_lock = threading.Lock()
 
-# Global indexing states (tracks progress for uploaded/reindexed files)
 indexing_states = {}
 indexing_states_lock = threading.Lock()
+
+# Startup state for first-time runs
+startup_state = {
+    "status": "initializing",  # "initializing", "ready", "error"
+    "current_step": "Starting backend initialization...",
+    "model_alias": None,
+    "progress": 0.0,
+    "downloaded_mb": 0.0,
+    "total_mb": 0.0,
+    "speed": "",
+    "error": None
+}
+startup_lock = threading.Lock()
+
 
 
 # Similarity calculation function
@@ -60,12 +73,16 @@ def cosine_similarity(v1: List[float], v2: List[float]) -> float:
         return 0.0
     return dot_product / (norm_v1 * norm_v2)
 
-# Start models and local web service on startup
-@app.on_event("startup")
-def startup_event():
-    global manager, embedding_client, local_client
+def initialize_system_in_background():
+    global manager, embedding_client, local_client, startup_state, chat_alias, embedding_alias
+    
     try:
-        print("Starting Foundry Local SDK...")
+        # Step 1: Initialize SDK
+        with startup_lock:
+            startup_state["status"] = "initializing"
+            startup_state["current_step"] = "Initializing Microsoft Foundry Local SDK..."
+            startup_state["progress"] = 10.0
+            
         config = Configuration(app_name="local_rag_app")
         try:
             FoundryLocalManager.initialize(config)
@@ -73,26 +90,143 @@ def startup_event():
             # Already initialized
             pass
         manager = FoundryLocalManager.instance
-
-        # Load embedding model
-        print("Loading embedding model...")
+        
+        # Step 2: Load or download embedding model
+        with startup_lock:
+            startup_state["current_step"] = f"Checking embedding model: {embedding_alias}..."
+            startup_state["progress"] = 20.0
+            
         embed_model = manager.catalog.get_model(embedding_alias)
         if not embed_model.is_cached:
-            print(f"Downloading default embedding model: {embedding_alias}...")
-            embed_model.download()
+            file_size_mb = 0
+            if hasattr(embed_model, 'info') and embed_model.info:
+                file_size_mb = getattr(embed_model.info, 'file_size_mb', 0) or 0
+                
+            last_time = [time.time()]
+            last_net_bytes = [psutil.net_io_counters().bytes_recv]
+            start_net_bytes = last_net_bytes[0]
+            
+            with startup_lock:
+                startup_state["model_alias"] = embedding_alias
+                startup_state["current_step"] = f"Downloading default embedding model: {embedding_alias}..."
+                startup_state["downloaded_mb"] = 0.0
+                startup_state["total_mb"] = file_size_mb
+                startup_state["speed"] = "0 KB/s"
+                
+            def embed_progress(val):
+                with startup_lock:
+                    percentage = min(round(val, 2), 100.0)
+                    startup_state["progress"] = round(20.0 + (percentage * 0.3), 1)
+                    
+                    # Calculate download speed and MB downloaded
+                    current_time = time.time()
+                    delta_time = current_time - last_time[0]
+                    current_net_total = psutil.net_io_counters().bytes_recv
+                    actual_downloaded_bytes = current_net_total - start_net_bytes
+                    actual_downloaded_mb = actual_downloaded_bytes / (1024 * 1024)
+                    
+                    if file_size_mb > 0:
+                        total_mb = file_size_mb
+                        downloaded_mb = (percentage / 100.0) * file_size_mb
+                    else:
+                        if percentage > 0:
+                            total_mb = (actual_downloaded_mb / percentage) * 100.0
+                        else:
+                            total_mb = 0
+                        downloaded_mb = actual_downloaded_mb
+                        
+                    startup_state["downloaded_mb"] = round(downloaded_mb, 2)
+                    startup_state["total_mb"] = round(total_mb, 2)
+                    
+                    if delta_time >= 0.5:
+                        delta_bytes = current_net_total - last_net_bytes[0]
+                        speed_mb_s = (delta_bytes / delta_time) / (1024 * 1024) if delta_time > 0 else 0
+                        if speed_mb_s >= 1.0:
+                            startup_state["speed"] = f"{round(speed_mb_s, 1)} MB/s"
+                        else:
+                            startup_state["speed"] = f"{round(speed_mb_s * 1024, 0):.0f} KB/s"
+                        last_time[0] = current_time
+                        last_net_bytes[0] = current_net_total
+            
+            embed_model.download(progress_callback=embed_progress)
+            
+        with startup_lock:
+            startup_state["current_step"] = f"Loading embedding model: {embedding_alias}..."
+            startup_state["progress"] = 50.0
+            
         embed_model.load()
         embedding_client = embed_model.get_embedding_client()
-
-        # Load chat model
-        print("Loading chat model...")
+        
+        # Step 3: Load or download chat model
+        with startup_lock:
+            startup_state["current_step"] = f"Checking chat model: {chat_alias}..."
+            startup_state["progress"] = 60.0
+            
         chat_model = manager.catalog.get_model(chat_alias)
         if not chat_model.is_cached:
-            print(f"Downloading default chat model: {chat_alias}...")
-            chat_model.download()
+            file_size_mb = 0
+            if hasattr(chat_model, 'info') and chat_model.info:
+                file_size_mb = getattr(chat_model.info, 'file_size_mb', 0) or 0
+                
+            last_time = [time.time()]
+            last_net_bytes = [psutil.net_io_counters().bytes_recv]
+            start_net_bytes = last_net_bytes[0]
+            
+            with startup_lock:
+                startup_state["model_alias"] = chat_alias
+                startup_state["current_step"] = f"Downloading default chat model: {chat_alias}..."
+                startup_state["downloaded_mb"] = 0.0
+                startup_state["total_mb"] = file_size_mb
+                startup_state["speed"] = "0 KB/s"
+                
+            def chat_progress(val):
+                with startup_lock:
+                    percentage = min(round(val, 2), 100.0)
+                    startup_state["progress"] = round(60.0 + (percentage * 0.3), 1)
+                    
+                    # Calculate download speed and MB downloaded
+                    current_time = time.time()
+                    delta_time = current_time - last_time[0]
+                    current_net_total = psutil.net_io_counters().bytes_recv
+                    actual_downloaded_bytes = current_net_total - start_net_bytes
+                    actual_downloaded_mb = actual_downloaded_bytes / (1024 * 1024)
+                    
+                    if file_size_mb > 0:
+                        total_mb = file_size_mb
+                        downloaded_mb = (percentage / 100.0) * file_size_mb
+                    else:
+                        if percentage > 0:
+                            total_mb = (actual_downloaded_mb / percentage) * 100.0
+                        else:
+                            total_mb = 0
+                        downloaded_mb = actual_downloaded_mb
+                        
+                    startup_state["downloaded_mb"] = round(downloaded_mb, 2)
+                    startup_state["total_mb"] = round(total_mb, 2)
+                    
+                    if delta_time >= 0.5:
+                        delta_bytes = current_net_total - last_net_bytes[0]
+                        speed_mb_s = (delta_bytes / delta_time) / (1024 * 1024) if delta_time > 0 else 0
+                        if speed_mb_s >= 1.0:
+                            startup_state["speed"] = f"{round(speed_mb_s, 1)} MB/s"
+                        else:
+                            startup_state["speed"] = f"{round(speed_mb_s * 1024, 0):.0f} KB/s"
+                        last_time[0] = current_time
+                        last_net_bytes[0] = current_net_total
+            
+            chat_model.download(progress_callback=chat_progress)
+            
+        with startup_lock:
+            startup_state["current_step"] = f"Loading chat model: {chat_alias}..."
+            startup_state["progress"] = 90.0
+            
         chat_model.load()
-
-        # Start service
-        print("Starting local web service...")
+        
+        # Start web service
+        with startup_lock:
+            startup_state["current_step"] = "Starting local web service..."
+            startup_state["progress"] = 95.0
+            
         try:
             manager.start_web_service()
         except Exception:
@@ -100,14 +234,30 @@ def startup_event():
             pass
             
         local_url = manager.urls[0]
-        print(f"Local web service running at {local_url}")
-
         local_client = openai.OpenAI(
             base_url=f"{local_url}/v1",
             api_key="local-key"
         )
         
-        # Initialize chat history tables in SQLite
+        with startup_lock:
+            startup_state["status"] = "ready"
+            startup_state["current_step"] = "System is ready!"
+            startup_state["progress"] = 100.0
+            
+        print("Foundry Local initialized successfully!")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        with startup_lock:
+            startup_state["status"] = "error"
+            startup_state["current_step"] = f"Initialization failed: {str(e)}"
+            startup_state["error"] = str(e)
+
+# Start models and local web service on startup
+@app.on_event("startup")
+def startup_event():
+    try:
+        # Initialize SQLite tables synchronously (takes <2ms, completely safe)
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("""
@@ -163,7 +313,11 @@ def startup_event():
         conn.commit()
         conn.close()
 
-        print("Foundry Local initialized successfully!")
+        # Start model downloads and loading in background thread
+        thread = threading.Thread(target=initialize_system_in_background)
+        thread.daemon = True
+        thread.start()
+
     except Exception as e:
         print(f"Error during startup initialization: {e}")
 
@@ -208,6 +362,13 @@ def get_status():
         "embedding_model": embedding_alias,
         "api_endpoint": manager.urls[0] if manager and manager.urls else None
     }
+
+@app.get("/api/startup-status")
+def get_startup_status():
+    global startup_state
+    with startup_lock:
+        return startup_state
+
 
 @app.get("/api/models")
 def get_models():
