@@ -1550,3 +1550,179 @@
   background: #dc2626;
 }
 
+/* RAG Context badge trigger */
+.context-badge-trigger {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  font-size: 0.74rem;
+  color: #8e8e8f;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.context-badge-trigger:hover {
+  background: rgba(59, 130, 246, 0.05);
+  border-color: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+  transform: translateY(-1px);
+}
+
+.context-badge-trigger:active {
+  transform: translateY(0);
+}
+
+/* Switch Toggle Button */
+.switch-toggle-btn {
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.4);
+}
+
+/* Chunk Inspector Modal */
+.chunk-inspector-modal-content {
+  background: rgba(23, 23, 23, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  width: 90%;
+  max-width: 650px;
+  padding: 24px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  animation: modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.chunk-inspector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chunk-inspector-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #ececec;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.inspector-meta-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.inspector-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inspector-meta-label {
+  font-size: 0.7rem;
+  color: #676767;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.inspector-meta-value {
+  font-size: 0.85rem;
+  color: #ececec;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspector-meta-value.similarity-badge {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.inspector-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inspector-body-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: #8e8e8f;
+  font-weight: 600;
+}
+
+.copy-chunk-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #ececec;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.copy-chunk-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.inspector-text-block {
+  max-height: 250px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: #d4d4d8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
+/* Highlighted matching keywords inside text block */
+.highlighted-term {
+  background: rgba(59, 130, 246, 0.25);
+  border-bottom: 2px solid #3b82f6;
+  color: #ffffff;
+  padding: 1px 3px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.inspector-actions {
+  display: flex;
+  margin-top: 8px;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+

@@ -12,6 +12,11 @@ import threading
 import time
 import psutil
 from foundry_local_sdk import Configuration, FoundryLocalManager
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "knowledge_base.db")
 
@@ -66,12 +71,50 @@ startup_lock = threading.Lock()
 
 # Similarity calculation function
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:
-    dot_product = sum(x * y for x, y in zip(v1, v2))
-    norm_v1 = math.sqrt(sum(x * x for x in v1))
-    norm_v2 = math.sqrt(sum(x * x for x in v2))
-    if not norm_v1 or not norm_v2:
-        return 0.0
-    return dot_product / (norm_v1 * norm_v2)
+    if HAS_NUMPY:
+        arr1 = np.array(v1, dtype=np.float32)
+        arr2 = np.array(v2, dtype=np.float32)
+        dot_product = np.dot(arr1, arr2)
+        norm_v1 = np.linalg.norm(arr1)
+        norm_v2 = np.linalg.norm(arr2)
+        if not norm_v1 or not norm_v2:
+            return 0.0
+        return float(dot_product / (norm_v1 * norm_v2))
+    else:
+        dot_product = sum(x * y for x, y in zip(v1, v2))
+        norm_v1 = math.sqrt(sum(x * x for x in v1))
+        norm_v2 = math.sqrt(sum(x * x for x in v2))
+        if not norm_v1 or not norm_v2:
+            return 0.0
+        return dot_product / (norm_v1 * norm_v2)
+
+def get_db_settings() -> Dict[str, Any]:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM settings")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        settings = {
+            "top_k": 3,
+            "similarity_threshold": 0.15,
+            "strict_mode": True
+        }
+        for k, v in rows:
+            if k == "top_k":
+                settings["top_k"] = int(v)
+            elif k == "similarity_threshold":
+                settings["similarity_threshold"] = float(v)
+            elif k == "strict_mode":
+                settings["strict_mode"] = v == "1"
+        return settings
+    except Exception:
+        return {
+            "top_k": 3,
+            "similarity_threshold": 0.15,
+            "strict_mode": True
+        }
 
 def initialize_system_in_background():
     global manager, embedding_client, local_client, startup_state, chat_alias, embedding_alias
@@ -296,6 +339,19 @@ def startup_event():
             )
         """)
         
+        # Create settings table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        cursor.execute("SELECT COUNT(*) FROM settings")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("top_k", "3"))
+            cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("similarity_threshold", "0.15"))
+            cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("strict_mode", "1"))
+        
         # Migrations for existing DB instances
         try:
             cursor.execute("ALTER TABLE sessions ADD COLUMN is_pinned INTEGER DEFAULT 0")
@@ -354,6 +410,11 @@ class ModelDeleteRequest(BaseModel):
 
 class ReindexRequest(BaseModel):
     filename: str
+
+class SettingsUpdateRequest(BaseModel):
+    top_k: int = None
+    similarity_threshold: float = None
+    strict_mode: bool = None
 
 @app.get("/api/status")
 def get_status():
@@ -786,12 +847,18 @@ def chat_endpoint(request: ChatRequest):
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
+    # Get settings
+    settings = get_db_settings()
+    top_k = settings.get("top_k", 3)
+    threshold = settings.get("similarity_threshold", 0.15)
+    strict_mode = settings.get("strict_mode", True)
+
     try:
         # 1. Generate query vector
         query_response = embedding_client.generate_embedding(question)
         query_vector = query_response.data[0].embedding
 
-        # 2. Retrieve document vectors from SQLite (filtering by active embedding model to prevent dimension mismatches)
+        # 2. Retrieve document vectors from SQLite
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         if target_file:
@@ -820,44 +887,57 @@ def chat_endpoint(request: ChatRequest):
         # 3. Calculate similarities
         results = []
         for row in rows:
-          doc_text = row[0]
-          doc_vector = json.loads(row[1])
-          doc_file_name = row[2] if row[2] else "Unknown File"
-          score = cosine_similarity(query_vector, doc_vector)
-          results.append((doc_text, score, doc_file_name))
+            doc_text = row[0]
+            doc_vector = json.loads(row[1])
+            doc_file_name = row[2] if row[2] else "Unknown File"
+            score = cosine_similarity(query_vector, doc_vector)
+            results.append((doc_text, score, doc_file_name))
 
         # Sort and select the top matches
         results.sort(key=lambda x: x[1], reverse=True)
         
         # Filter matches above threshold
-        valid_matches = [r for r in results if r[1] >= 0.15]
+        valid_matches = [r for r in results if r[1] >= threshold]
         
         if not valid_matches:
-            top_text = results[0][0]
-            top_score = results[0][1]
-            top_file_name = results[0][2]
-            context_text = "The available source text is insufficient or irrelevant."
+            if strict_mode:
+                return {
+                    "answer": "This information is not available in the local knowledge base.",
+                    "context": "Irrelevant context filtered out.",
+                    "score": 0.0,
+                    "file_name": results[0][2]
+                }
+            else:
+                top_text = results[0][0]
+                top_score = results[0][1]
+                top_file_name = results[0][2]
+                context_text = "No relevant document sources match the user query. Warn the user that the response is based on general knowledge."
         else:
-            # Take top 3 valid matches
-            top_matches = valid_matches[:3]
-            top_text = top_matches[0][0] # Primary context for UI meta
+            top_matches = valid_matches[:top_k]
+            top_text = top_matches[0][0]
             top_score = top_matches[0][1]
             top_file_name = top_matches[0][2]
             
-            # Combine the texts from the top 3 chunks for context
             combined_texts = []
             for idx, (text, score, file_name) in enumerate(top_matches):
                 combined_texts.append(f"[Source {idx+1}: {file_name} (Similarity: {round(score*100, 1)}%)]\n{text}")
             context_text = "\n\n".join(combined_texts)
 
         # 4. Construct prompt and generate answer
+        strict_instructions = (
+            "- Answer the user's question by strictly adhering to the 'SOURCE TEXTS' provided below.\n"
+            "- If the answer is not in the provided source texts, state: 'This information is not available in the local knowledge base.'\n"
+        ) if strict_mode else (
+            "- Try to answer using the 'SOURCE TEXTS' provided below.\n"
+            "- If the information is not in the source texts, use your general knowledge to answer, but start your response by mentioning that it is not in the local documents.\n"
+        )
+
         system_prompt = (
             "You are a local, offline support AI assistant specialized in document-based information retrieval.\n\n"
             "Behaviour Rules:\n"
             "- Always prioritize safety. If the procedure or topic involves risk, explicitly call out warnings.\n"
             "- Do not hallucinate or guess procedures, measurements, timelines, or specifications.\n"
-            "- Answer the user's question by strictly adhering to the 'SOURCE TEXTS' provided below.\n"
-            "- If the answer is not in the provided source texts, state: 'This information is not available in the local knowledge base.'\n"
+            + strict_instructions +
             "- Be concise, direct, and structure your responses with bullet points or numbered lists where applicable.\n\n"
             f"SOURCE TEXTS:\n{context_text}"
         )
@@ -881,6 +961,122 @@ def chat_endpoint(request: ChatRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error executing chat completion: {str(e)}")
+
+@app.post("/api/chat/stream")
+def chat_stream_endpoint(request: ChatRequest):
+    global embedding_client, local_client
+    if not embedding_client or not local_client:
+        raise HTTPException(status_code=503, detail="Models are not initialized yet.")
+    
+    question = request.question.strip()
+    target_file = request.target_file
+    if not question:
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    # Get settings
+    settings = get_db_settings()
+    top_k = settings.get("top_k", 3)
+    threshold = settings.get("similarity_threshold", 0.15)
+    strict_mode = settings.get("strict_mode", True)
+
+    def event_generator():
+        try:
+            # 1. Generate query vector
+            query_response = embedding_client.generate_embedding(question)
+            query_vector = query_response.data[0].embedding
+
+            # 2. Retrieve document vectors from SQLite
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            if target_file:
+                cursor.execute("SELECT text, embedding, file_name FROM documents WHERE file_name = ? AND embedding_model = ?", (target_file, embedding_alias))
+            else:
+                cursor.execute("SELECT text, embedding, file_name FROM documents WHERE embedding_model = ?", (embedding_alias,))
+            rows = cursor.fetchall()
+            conn.close()
+
+            if not rows:
+                err_ans = f"No content found for the selected document '{target_file}'." if target_file else "No documents found in the database."
+                yield f"data: {json.dumps({'token': err_ans})}\n\n"
+                yield f"data: {json.dumps({'context': 'No chunks found.', 'score': 0.0, 'file_name': target_file or 'None'})}\n\n"
+                return
+
+            # 3. Calculate similarities
+            results = []
+            for row in rows:
+                doc_text = row[0]
+                doc_vector = json.loads(row[1])
+                doc_file_name = row[2] if row[2] else "Unknown File"
+                score = cosine_similarity(query_vector, doc_vector)
+                results.append((doc_text, score, doc_file_name))
+
+            results.sort(key=lambda x: x[1], reverse=True)
+            valid_matches = [r for r in results if r[1] >= threshold]
+
+            if not valid_matches:
+                if strict_mode:
+                    yield f"data: {json.dumps({'token': 'This information is not available in the local knowledge base.'})}\n\n"
+                    yield f"data: {json.dumps({'context': 'Irrelevant context filtered out.', 'score': 0.0, 'file_name': results[0][2]})}\n\n"
+                    return
+                else:
+                    top_text = results[0][0]
+                    top_score = results[0][1]
+                    top_file_name = results[0][2]
+                    context_text = "No relevant document sources match the user query. Warn the user that the response is based on general knowledge."
+            else:
+                top_matches = valid_matches[:top_k]
+                top_text = top_matches[0][0]
+                top_score = top_matches[0][1]
+                top_file_name = top_matches[0][2]
+
+                combined_texts = []
+                for idx, (text, score, file_name) in enumerate(top_matches):
+                    combined_texts.append(f"[Source {idx+1}: {file_name} (Similarity: {round(score*100, 1)}%)]\n{text}")
+                context_text = "\n\n".join(combined_texts)
+
+            # 4. Prompt Builder
+            strict_instructions = (
+                "- Answer the user's question by strictly adhering to the 'SOURCE TEXTS' provided below.\n"
+                "- If the answer is not in the provided source texts, state: 'This information is not available in the local knowledge base.'\n"
+            ) if strict_mode else (
+                "- Try to answer using the 'SOURCE TEXTS' provided below.\n"
+                "- If the information is not in the source texts, use your general knowledge to answer, but start your response by mentioning that it is not in the local documents.\n"
+            )
+
+            system_prompt = (
+                "You are a local, offline support AI assistant specialized in document-based information retrieval.\n\n"
+                "Behaviour Rules:\n"
+                "- Always prioritize safety. If the procedure or topic involves risk, explicitly call out warnings.\n"
+                "- Do not hallucinate or guess procedures, measurements, timelines, or specifications.\n"
+                + strict_instructions +
+                "- Be concise, direct, and structure your responses with bullet points or numbered lists where applicable.\n\n"
+                f"SOURCE TEXTS:\n{context_text}"
+            )
+
+            # 5. Call completions with stream=True
+            response_stream = local_client.chat.completions.create(
+                model=chat_alias,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": question}
+                ],
+                temperature=0.3,
+                stream=True
+            )
+
+            for chunk in response_stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    token = chunk.choices[0].delta.content
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+
+            # Yield RAG details metadata at the very end
+            yield f"data: {json.dumps({'context': top_text if valid_matches else 'No relevant matches.', 'score': round(top_score * 100, 2), 'file_name': top_file_name})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 class MessageStoreRequest(BaseModel):
     role: str
@@ -1163,4 +1359,25 @@ def delete_document(filename: str):
     except Exception as e:
         import traceback
         traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/settings")
+def get_settings():
+    return get_db_settings()
+
+@app.post("/api/settings")
+def update_settings(req: SettingsUpdateRequest):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        if req.top_k is not None:
+            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("top_k", str(req.top_k)))
+        if req.similarity_threshold is not None:
+            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("similarity_threshold", str(req.similarity_threshold)))
+        if req.strict_mode is not None:
+            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("strict_mode", "1" if req.strict_mode else "0"))
+        conn.commit()
+        conn.close()
+        return get_db_settings()
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

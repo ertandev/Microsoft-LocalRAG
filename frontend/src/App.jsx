@@ -173,6 +173,11 @@ function App() {
   const [deleteModelTarget, setDeleteModelTarget] = useState(null);
   const [reindexingFiles, setReindexingFiles] = useState({});
   const [indexingActiveFiles, setIndexingActiveFiles] = useState({});
+  const [topK, setTopK] = useState(3);
+  const [similarityThreshold, setSimilarityThreshold] = useState(0.15);
+  const [strictMode, setStrictMode] = useState(true);
+  const [activeInspectorChunk, setActiveInspectorChunk] = useState(null);
+
   const [systemStartupState, setSystemStartupState] = useState(() => {
     const alreadyReady = sessionStorage.getItem('backend_already_ready') === 'true';
     return {
@@ -279,6 +284,7 @@ function App() {
             fetchDocuments();
             fetchSessions();
             fetchAvailableModels();
+            fetchSettings();
             if (intervalId) clearInterval(intervalId);
           }
         } else {
@@ -492,6 +498,20 @@ function App() {
   };
 
 
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/settings`);
+      const data = await res.json();
+      if (data) {
+        if (data.top_k !== undefined) setTopK(data.top_k);
+        if (data.similarity_threshold !== undefined) setSimilarityThreshold(data.similarity_threshold);
+        if (data.strict_mode !== undefined) setStrictMode(data.strict_mode);
+      }
+    } catch (err) {
+      console.error("Failed to fetch settings:", err);
+    }
+  };
+
   const fetchSystemStatus = async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/status`);
@@ -543,13 +563,24 @@ function App() {
       });
       
       if (res.ok) {
+        // Save RAG settings
+        await fetch(`${BACKEND_URL}/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            top_k: topK,
+            similarity_threshold: similarityThreshold,
+            strict_mode: strictMode
+          })
+        });
+
         const data = await res.json();
         if (data.status === "downloading") {
           setDownloadModelName(selectedEmbeddingModel);
           setDownloadProgress(0);
           setDownloadActive(true);
         } else {
-          showNotification("Models updated successfully!", "success");
+          showNotification("Configuration updated successfully!", "success");
           await fetchSystemStatus();
           await fetchDocuments();
         }
@@ -946,7 +977,7 @@ function App() {
     });
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/chat`, {
+      const res = await fetch(`${BACKEND_URL}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -956,34 +987,104 @@ function App() {
       });
 
       if (res.ok) {
-        const data = await res.json();
-        const botMessage = {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let finished = false;
+        let streamedContent = "";
+        let finalMetadata = null;
+
+        // Add initial empty assistant message
+        let initialBotMessage = {
           role: 'assistant',
-          content: data.answer,
-          context: data.context,
-          score: data.score,
-          fileName: data.file_name
+          content: '',
+          context: '',
+          score: 0.0,
+          fileName: ''
         };
         
         if (currentSessionIdRef.current === sessionId) {
-          setMessages(prev => [...prev, botMessage]);
+          setMessages(prev => [...prev, initialBotMessage]);
         }
 
-        // Asistan mesajını veritabanına kaydet
+        let buffer = "";
+
+        while (!finished) {
+          const { value, done } = await reader.read();
+          finished = done;
+          if (value) {
+            buffer += decoder.decode(value, { stream: !finished });
+            const lines = buffer.split("\n");
+            buffer = lines.pop(); // Keep last partial chunk
+
+            for (const line of lines) {
+              const cleaned = line.trim();
+              if (cleaned.startsWith("data:")) {
+                try {
+                  const dataStr = cleaned.slice(5).trim();
+                  const dataObj = JSON.parse(dataStr);
+
+                  if (dataObj.error) {
+                    streamedContent += `\nError: ${dataObj.error}`;
+                  } else if (dataObj.token !== undefined) {
+                    streamedContent += dataObj.token;
+                  } else if (dataObj.context !== undefined) {
+                    finalMetadata = {
+                      context: dataObj.context,
+                      score: dataObj.score,
+                      file_name: dataObj.file_name
+                    };
+                  }
+
+                  if (currentSessionIdRef.current === sessionId) {
+                    setMessages(prev => {
+                      const next = [...prev];
+                      const lastMsg = next[next.length - 1];
+                      if (lastMsg && lastMsg.role === 'assistant') {
+                        lastMsg.content = streamedContent;
+                        if (finalMetadata) {
+                          lastMsg.context = finalMetadata.context;
+                          lastMsg.score = finalMetadata.score;
+                          lastMsg.fileName = finalMetadata.file_name;
+                        }
+                      }
+                      return next;
+                    });
+                  }
+                } catch (e) {
+                  // Buffer incomplete chunk
+                }
+              }
+            }
+          }
+        }
+
+        // Ensure loading state is fully cleared
+        setLoadingSessions(prev => {
+          const next = { ...prev };
+          delete next[sessionId];
+          return next;
+        });
+
+        // Save assistant message to DB
         await fetch(`${BACKEND_URL}/api/sessions/${sessionId}/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             role: 'assistant',
-            content: botMessage.content,
-            context: botMessage.context,
-            score: botMessage.score,
-            file_name: botMessage.fileName
+            content: streamedContent,
+            context: finalMetadata ? finalMetadata.context : null,
+            score: finalMetadata ? finalMetadata.score : null,
+            file_name: finalMetadata ? finalMetadata.file_name : null
           })
         });
 
       } else {
         const errorData = await res.json();
+        setLoadingSessions(prev => {
+          const next = { ...prev };
+          delete next[sessionId];
+          return next;
+        });
         if (currentSessionIdRef.current === sessionId) {
           setMessages(prev => [...prev, {
             role: 'assistant',
@@ -1005,6 +1106,9 @@ function App() {
         delete next[sessionId];
         return next;
       });
+      if (currentSessionIdRef.current === sessionId) {
+        fetchMessages(sessionId);
+      }
       // Başlıkları ve seans listesini güncelle
       fetchSessions();
       fetchDocuments();
@@ -1544,32 +1648,36 @@ function App() {
               </div>
             </div>
           ) : (
-            messages.map((msg, index) => (
-              <div key={index} className={`message-wrapper ${msg.role}`}>
-                <div className="avatar">
-                  {msg.role === 'user' ? <UserIcon size={18} /> : <SparkleIcon size={18} style={{ color: '#ececec' }} />}
-                </div>
-                <div className="message-content">
-                  <div className="bubble">{msg.content}</div>
-                  {msg.context && (
-                    <details className="context-accordion">
-                      <summary>
-                        <SearchIcon size={13} style={{ marginRight: '6px' }} />
-                        Source Document Details (RAG)
-                      </summary>
-                      <div className="context-details-content">
-                        <p><strong>Source File:</strong> {msg.fileName}</p>
-                        <p><strong>Matched Text:</strong> {msg.context}</p>
-                        <p><strong>Semantic Similarity:</strong> {msg.score}%</p>
+            messages.map((msg, index) => {
+              if (msg.role === 'assistant' && !msg.content) return null;
+              return (
+                <div key={index} className={`message-wrapper ${msg.role}`}>
+                  <div className="avatar">
+                    {msg.role === 'user' ? <UserIcon size={18} /> : <SparkleIcon size={18} style={{ color: '#ececec' }} />}
+                  </div>
+                  <div className="message-content">
+                    <div className="bubble">{msg.content}</div>
+                    {msg.context && (
+                      <div 
+                        className="context-badge-trigger" 
+                        onClick={() => setActiveInspectorChunk({
+                          text: msg.context,
+                          score: msg.score,
+                          fileName: msg.fileName,
+                          query: messages[index - 1] ? messages[index - 1].content : ''
+                        })}
+                      >
+                        <SearchIcon size={12} style={{ color: '#3b82f6', flexShrink: 0 }} />
+                        <span>Source: <strong>{msg.fileName}</strong> (Similarity: {msg.score}%)</span>
                       </div>
-                    </details>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
           
-          {currentSessionId && loadingSessions[currentSessionId] && (
+          {currentSessionId && loadingSessions[currentSessionId] && (messages.length === 0 || messages[messages.length - 1].role !== 'assistant' || !messages[messages.length - 1].content) && (
             <div className="message-wrapper assistant loading-message">
               <div className="avatar">
                 <SparkleIcon size={18} style={{ color: '#3b82f6' }} />
@@ -1799,6 +1907,80 @@ function App() {
             </div>
 
             <div className="settings-divider" style={{ margin: '20px 0 16px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}></div>
+
+            <div className="settings-form-group">
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Local RAG Context Count (Top-K)</span>
+                <span style={{ fontSize: '0.8rem', color: '#3b82f6', fontWeight: 'bold' }}>{topK} Chunks</span>
+              </label>
+              <span className="settings-description" style={{ fontSize: '0.75rem', color: '#8e8e8f', display: 'block', marginBottom: '8px' }}>
+                Number of document chunks sent to the AI model context window.
+              </span>
+              <input 
+                type="range" 
+                min="1" 
+                max="10" 
+                value={topK} 
+                onChange={(e) => setTopK(parseInt(e.target.value))}
+                style={{ width: '100%', accentColor: '#3b82f6', background: 'rgba(255,255,255,0.1)', height: '5px', borderRadius: '3px', cursor: 'pointer' }}
+              />
+            </div>
+
+            <div className="settings-form-group" style={{ marginTop: '16px' }}>
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Similarity Search Threshold</span>
+                <span style={{ fontSize: '0.8rem', color: '#3b82f6', fontWeight: 'bold' }}>{Math.round(similarityThreshold * 100)}%</span>
+              </label>
+              <span className="settings-description" style={{ fontSize: '0.75rem', color: '#8e8e8f', display: 'block', marginBottom: '8px' }}>
+                Minimum cosine similarity score required to match document paragraphs.
+              </span>
+              <input 
+                type="range" 
+                min="0" 
+                max="100" 
+                value={Math.round(similarityThreshold * 100)} 
+                onChange={(e) => setSimilarityThreshold(parseFloat(e.target.value) / 100)}
+                style={{ width: '100%', accentColor: '#3b82f6', background: 'rgba(255,255,255,0.1)', height: '5px', borderRadius: '3px', cursor: 'pointer' }}
+              />
+            </div>
+
+            <div className="settings-form-group" style={{ marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <label style={{ margin: 0, display: 'block' }}>Strict Knowledge Base Filter</label>
+                <span className="settings-description" style={{ fontSize: '0.75rem', color: '#8e8e8f', display: 'block', marginTop: '2px' }}>
+                  If active, the AI will refuse to answer when matching context is insufficient.
+                </span>
+              </div>
+              <div 
+                className={`switch-toggle-btn ${strictMode ? 'active' : ''}`}
+                onClick={() => setStrictMode(!strictMode)}
+                style={{
+                  width: '40px',
+                  height: '22px',
+                  borderRadius: '11px',
+                  background: strictMode ? '#3b82f6' : 'rgba(255,255,255,0.15)',
+                  position: 'relative',
+                  cursor: 'pointer',
+                  transition: 'background 0.2s',
+                  flexShrink: 0
+                }}
+              >
+                <div 
+                  style={{
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '50%',
+                    background: '#ececec',
+                    position: 'absolute',
+                    top: '2px',
+                    left: strictMode ? '20px' : '2px',
+                    transition: 'left 0.2s'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="settings-divider" style={{ margin: '20px 0 16px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}></div>
             
             <div className="settings-form-group">
               <label>Local Disk Space & Cache Manager</label>
@@ -1858,6 +2040,87 @@ function App() {
                 disabled={!selectedEmbeddingModel}
               >
                 Apply Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeInspectorChunk && (
+        <div className="confirm-modal-overlay">
+          <div className="chunk-inspector-modal-content glass-panel">
+            <div className="chunk-inspector-header">
+              <h3>
+                <SearchIcon size={16} style={{ color: '#3b82f6' }} />
+                RAG Chunk Details & Source Analysis
+              </h3>
+              <button 
+                type="button" 
+                className="modal-close-btn" 
+                onClick={() => setActiveInspectorChunk(null)}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+
+            <div className="inspector-meta-row">
+              <div className="inspector-meta-item">
+                <span className="inspector-meta-label">Source Document</span>
+                <span className="inspector-meta-value">{activeInspectorChunk.fileName}</span>
+              </div>
+              <div className="inspector-meta-item">
+                <span className="inspector-meta-label">Semantic Similarity</span>
+                <span className="inspector-meta-value similarity-badge" style={{
+                  color: activeInspectorChunk.score >= 40 ? '#22c55e' : (activeInspectorChunk.score >= 20 ? '#f59e0b' : '#ef4444')
+                }}>
+                  {activeInspectorChunk.score}%
+                </span>
+              </div>
+            </div>
+
+            <div className="inspector-body">
+              <div className="inspector-body-label">
+                <span>Indexed Source Text Segment (Chunk)</span>
+                <button 
+                  type="button" 
+                  className="copy-chunk-btn" 
+                  onClick={() => {
+                    navigator.clipboard.writeText(activeInspectorChunk.text);
+                    showNotification("Copied chunk text to clipboard!", "success");
+                  }}
+                >
+                  Copy Text
+                </button>
+              </div>
+              <div className="inspector-text-block">
+                {(() => {
+                  const queryWords = activeInspectorChunk.query
+                    ? activeInspectorChunk.query.toLowerCase().replace(/[^\w\sğüşıöç]/g, '').split(/\s+/).filter(w => w.length > 2)
+                    : [];
+                  
+                  if (queryWords.length === 0) return activeInspectorChunk.text;
+
+                  const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                  const regexPattern = new RegExp(`(${queryWords.map(escapeRegExp).join('|')})`, 'gi');
+                  
+                  const parts = activeInspectorChunk.text.split(regexPattern);
+                  return parts.map((part, i) => 
+                    regexPattern.test(part) ? <mark key={i} className="highlighted-term">{part}</mark> : part
+                  );
+                })()}
+              </div>
+            </div>
+
+            <div className="inspector-actions">
+              <button 
+                className="confirm-btn-cancel" 
+                onClick={() => setActiveInspectorChunk(null)}
+                style={{ width: '100%', border: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                Close Inspector
               </button>
             </div>
           </div>
