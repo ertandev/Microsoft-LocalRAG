@@ -343,6 +343,7 @@ class FileResponse(BaseModel):
     is_pinned: bool
     embedding_model: str
     is_compatible: bool
+    max_id: int = 0
 
 class ModelSelectRequest(BaseModel):
     chat_model: str = None
@@ -721,9 +722,9 @@ def get_documents():
         cursor.execute("SELECT file_name, is_pinned FROM document_metadata")
         pinned_map = {r[0]: bool(r[1]) for r in cursor.fetchall()}
         
-        # Get all chunk counts grouped by file and model
+        # Get all chunk counts grouped by file and model, also getting MAX(id) to know upload order
         cursor.execute("""
-            SELECT file_name, embedding_model, COUNT(id)
+            SELECT file_name, embedding_model, COUNT(id), MAX(id)
             FROM documents
             WHERE file_name IS NOT NULL
             GROUP BY file_name, embedding_model
@@ -733,14 +734,19 @@ def get_documents():
         
         # Group by file_name
         files_dict = {}
-        for file_name, model, count in rows:
+        for file_name, model, count, max_chunk_id in rows:
             if file_name not in files_dict:
                 files_dict[file_name] = {
                     "file_name": file_name,
                     "models": [],
                     "active_chunks": 0,
-                    "is_compatible": False
+                    "is_compatible": False,
+                    "max_id": max_chunk_id or 0
                 }
+            else:
+                if max_chunk_id and max_chunk_id > files_dict[file_name]["max_id"]:
+                    files_dict[file_name]["max_id"] = max_chunk_id
+
             if model:
                 files_dict[file_name]["models"].append(model)
                 if model == embedding_alias:
@@ -759,7 +765,8 @@ def get_documents():
                 "chunks_count": chunks_count,
                 "is_pinned": pinned_map.get(file_name, False),
                 "embedding_model": models_str,
-                "is_compatible": info["is_compatible"]
+                "is_compatible": info["is_compatible"],
+                "max_id": info["max_id"]
             })
             
         # Sort: pinned first, then filename

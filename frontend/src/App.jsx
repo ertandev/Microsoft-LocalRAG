@@ -207,7 +207,7 @@ function App() {
 
   const getSuggestedCards = () => {
     if (documents && documents.length > 0) {
-      const latestDoc = documents[documents.length - 1];
+      const latestDoc = [...documents].reduce((prev, current) => ((prev.max_id || 0) > (current.max_id || 0)) ? prev : current);
       const name = latestDoc.file_name;
       const cleanName = name.length > 25 ? name.substring(0, 22) + "..." : name;
       
