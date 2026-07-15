@@ -157,6 +157,10 @@ function App() {
   const [totalMb, setTotalMb] = useState(0);
   const [downloadSpeed, setDownloadSpeed] = useState('');
   const [deleteModelTarget, setDeleteModelTarget] = useState(null);
+  const [reindexingFiles, setReindexingFiles] = useState({});
+  const [indexingActiveFiles, setIndexingActiveFiles] = useState({});
+
+
   const chatboxDropdownRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -345,10 +349,84 @@ function App() {
       }, 1000);
     }
     
+  }, [downloadActive, status.chatModel, status.embeddingModel]);
+
+  // Polling for document indexing status
+  useEffect(() => {
+    let intervalId = null;
+    
+    const hasActiveIndexing = Object.values(indexingActiveFiles).some(
+      file => file.status === 'processing'
+    );
+    
+    if (hasActiveIndexing) {
+      intervalId = setInterval(async () => {
+        try {
+          const res = await fetch(`${BACKEND_URL}/api/documents/indexing-status`);
+          if (res.ok) {
+            const serverStates = await res.json();
+            
+            setIndexingActiveFiles(prev => {
+              const updated = { ...prev };
+              let changed = false;
+              
+              for (const filename of Object.keys(updated)) {
+                const serverState = serverStates[filename];
+                if (serverState) {
+                  const prevState = updated[filename];
+                  
+                  if (
+                    prevState.status !== serverState.status ||
+                    prevState.progress !== serverState.progress ||
+                    prevState.processed_chunks !== serverState.processed_chunks ||
+                    prevState.total_chunks !== serverState.total_chunks ||
+                    prevState.error !== serverState.error
+                  ) {
+                    updated[filename] = serverState;
+                    changed = true;
+                    
+                    if (serverState.status === 'success') {
+                      showNotification(`"${filename}" has been indexed successfully!`, 'success');
+                      fetchDocuments();
+                    } else if (serverState.status === 'error') {
+                      showNotification(`Error indexing "${filename}": ${serverState.error}`, 'error');
+                      fetchDocuments();
+                    }
+                  }
+                }
+              }
+              
+              return changed ? updated : prev;
+            });
+          }
+        } catch (err) {
+          console.error("Error polling document indexing status:", err);
+        }
+      }, 800);
+    }
+    
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [downloadActive, status.chatModel, status.embeddingModel]);
+  }, [indexingActiveFiles]);
+
+  const handleClearIndexingFile = async (filename) => {
+    try {
+      await fetch(`${BACKEND_URL}/api/documents/indexing-clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename })
+      });
+    } catch (err) {
+      console.error("Error clearing indexing status on server:", err);
+    }
+    setIndexingActiveFiles(prev => {
+      const next = { ...prev };
+      delete next[filename];
+      return next;
+    });
+  };
+
 
   const fetchSystemStatus = async () => {
     try {
@@ -574,6 +652,10 @@ function App() {
     if (!file) return;
 
     setUploading(true);
+    setIndexingActiveFiles(prev => ({
+      ...prev,
+      [file.name]: { status: 'processing', progress: 0, processed_chunks: 0, total_chunks: 0, error: null }
+    }));
     const formData = new FormData();
     formData.append('file', file);
 
@@ -583,15 +665,27 @@ function App() {
         body: formData
       });
       if (res.ok) {
-        showNotification("Document uploaded and indexed successfully!", "success");
-        fetchDocuments();
+        const data = await res.json();
+        if (data.status === 'processing') {
+          showNotification(`"${file.name}" is being indexed...`, "info");
+        }
       } else {
         const err = await res.json();
         showNotification(`Error: ${err.detail || 'Failed to upload file.'}`, "error");
+        setIndexingActiveFiles(prev => {
+          const next = { ...prev };
+          delete next[file.name];
+          return next;
+        });
       }
     } catch (err) {
       console.error("Error uploading file:", err);
       showNotification("Could not connect to the server.", "error");
+      setIndexingActiveFiles(prev => {
+        const next = { ...prev };
+        delete next[file.name];
+        return next;
+      });
     } finally {
       setUploading(false);
       e.target.value = '';
@@ -606,6 +700,46 @@ function App() {
   const handleDeleteDocument = (e, filename) => {
     e.stopPropagation();
     setDeleteTarget({ type: 'document', filename });
+  };
+
+  const handleReindexDocument = async (e, filename) => {
+    e.stopPropagation();
+    setReindexingFiles(prev => ({ ...prev, [filename]: true }));
+    setIndexingActiveFiles(prev => ({
+      ...prev,
+      [filename]: { status: 'processing', progress: 0, processed_chunks: 0, total_chunks: 0, error: null }
+    }));
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/documents/reindex`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename })
+      });
+      if (res.ok) {
+        showNotification(`"${filename}" is being re-indexed...`, "info");
+      } else {
+        const data = await res.json();
+        showNotification(`Failed to re-index document: ${data.detail || 'Unknown error'}`, "error");
+        setIndexingActiveFiles(prev => {
+          const next = { ...prev };
+          delete next[filename];
+          return next;
+        });
+      }
+    } catch (err) {
+      showNotification(`Connection error: ${err.message}`, "error");
+      setIndexingActiveFiles(prev => {
+        const next = { ...prev };
+        delete next[filename];
+        return next;
+      });
+    } finally {
+      setReindexingFiles(prev => {
+        const next = { ...prev };
+        delete next[filename];
+        return next;
+      });
+    }
   };
 
   const handleTogglePinSession = async (e, sessionId, isPinned) => {
@@ -1023,11 +1157,43 @@ function App() {
                           <span className="doc-icon"><DocumentIcon size={18} /></span>
                           <div className="doc-info">
                             <p className={`doc-name ${!doc.is_compatible ? 'incompatible' : ''}`}>{doc.file_name}</p>
-                            <span className="doc-chunks">{doc.chunks_count} chunks</span>
-                            {!doc.is_compatible && (
-                              <span className="doc-compat-badge" title={`Indexed with ${doc.embedding_model}. Please delete and re-upload to index with current model.`}>
-                                Needs Re-index
-                              </span>
+                            {indexingActiveFiles[doc.file_name] && indexingActiveFiles[doc.file_name].status === 'processing' ? (
+                              <div style={{ marginTop: '4px', width: '100%', maxWidth: '160px' }}>
+                                <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', overflow: 'hidden' }}>
+                                  <div 
+                                    style={{ 
+                                      width: `${indexingActiveFiles[doc.file_name].progress}%`, 
+                                      height: '100%', 
+                                      background: 'linear-gradient(90deg, #10b981, #34d399)', 
+                                      borderRadius: '2px',
+                                      transition: 'width 0.2s ease-out'
+                                    }}
+                                  ></div>
+                                </div>
+                                <span style={{ fontSize: '0.6rem', color: '#10b981', display: 'block', marginTop: '2px' }}>
+                                  Indexing: {Math.round(indexingActiveFiles[doc.file_name].progress)}% ({indexingActiveFiles[doc.file_name].processed_chunks}/{indexingActiveFiles[doc.file_name].total_chunks || '?'})
+                                </span>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="doc-chunks">{doc.chunks_count} chunks • {doc.embedding_model || 'None'}</span>
+                                {!doc.is_compatible && (
+                                  reindexingFiles[doc.file_name] ? (
+                                    <span className="doc-reindexing-label" style={{ fontSize: '0.7rem', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                                      <SpinnerIcon size={12} style={{ color: '#3b82f6' }} /> Indexing...
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="doc-compat-badge"
+                                      onClick={(e) => handleReindexDocument(e, doc.file_name)}
+                                      title={`Not indexed with active model (${status.embeddingModel}). Click to index it now!`}
+                                    >
+                                      ⚡ Index with Active
+                                    </button>
+                                  )
+                                )}
+                              </>
                             )}
                           </div>
                           <div className="doc-actions-wrapper">
@@ -1059,11 +1225,43 @@ function App() {
                         <span className="doc-icon"><DocumentIcon size={18} /></span>
                         <div className="doc-info">
                           <p className={`doc-name ${!doc.is_compatible ? 'incompatible' : ''}`}>{doc.file_name}</p>
-                          <span className="doc-chunks">{doc.chunks_count} chunks</span>
-                          {!doc.is_compatible && (
-                            <span className="doc-compat-badge" title={`Indexed with ${doc.embedding_model}. Please delete and re-upload to index with current model.`}>
-                              Needs Re-index
-                            </span>
+                          {indexingActiveFiles[doc.file_name] && indexingActiveFiles[doc.file_name].status === 'processing' ? (
+                            <div style={{ marginTop: '4px', width: '100%', maxWidth: '160px' }}>
+                              <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', overflow: 'hidden' }}>
+                                <div 
+                                  style={{ 
+                                    width: `${indexingActiveFiles[doc.file_name].progress}%`, 
+                                    height: '100%', 
+                                    background: 'linear-gradient(90deg, #10b981, #34d399)', 
+                                    borderRadius: '2px',
+                                    transition: 'width 0.2s ease-out' 
+                                  }}
+                                ></div>
+                              </div>
+                              <span style={{ fontSize: '0.6rem', color: '#10b981', display: 'block', marginTop: '2px' }}>
+                                Indexing: {Math.round(indexingActiveFiles[doc.file_name].progress)}% ({indexingActiveFiles[doc.file_name].processed_chunks}/{indexingActiveFiles[doc.file_name].total_chunks || '?'})
+                              </span>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="doc-chunks">{doc.chunks_count} chunks • {doc.embedding_model || 'None'}</span>
+                              {!doc.is_compatible && (
+                                reindexingFiles[doc.file_name] ? (
+                                  <span className="doc-reindexing-label" style={{ fontSize: '0.7rem', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                                    <SpinnerIcon size={12} style={{ color: '#3b82f6' }} /> Indexing...
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="doc-compat-badge"
+                                    onClick={(e) => handleReindexDocument(e, doc.file_name)}
+                                    title={`Not indexed with active model (${status.embeddingModel}). Click to index it now!`}
+                                  >
+                                    ⚡ Index with Active
+                                  </button>
+                                )
+                              )}
+                            </>
                           )}
                         </div>
                         <div className="doc-actions-wrapper">
@@ -1581,7 +1779,7 @@ function App() {
                   <div className="download-progress-bar-fill" style={{ width: `${downloadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', borderRadius: '4px', transition: 'width 0.3s ease-out' }}></div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: '600', color: '#b4b4b4' }}>
-                  <span>{downloadedMb ? (downloadedMb / 1024).toFixed(2) : '0.00'} GB / {totalMb ? (totalMb / 1024).toFixed(2) : '0.00'} GB ({downloadProgress}%)</span>
+                  <span>{downloadedMb ? (downloadedMb / 1024).toFixed(2) : '0.00'} GB / {totalMb ? (totalMb / 1024).toFixed(2) : '0.00'} GB ({Number(downloadProgress).toFixed(1)}%)</span>
                   <span>{downloadSpeed || 'Downloading...'}</span>
                 </div>
               </div>
@@ -1718,9 +1916,100 @@ function App() {
               <div className="download-progress-bar-fill" style={{ width: `${downloadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', borderRadius: '3px', transition: 'width 0.3s ease-out' }}></div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: '500', color: '#b4b4b4' }}>
-              <span>{downloadedMb ? (downloadedMb / 1024).toFixed(2) : '0.00'} GB / {totalMb ? (totalMb / 1024).toFixed(2) : '0.00'} GB ({downloadProgress}%)</span>
+              <span>{downloadedMb ? (downloadedMb / 1024).toFixed(2) : '0.00'} GB / {totalMb ? (totalMb / 1024).toFixed(2) : '0.00'} GB ({Number(downloadProgress).toFixed(1)}%)</span>
               <span>{downloadSpeed || 'Downloading...'}</span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {Object.keys(indexingActiveFiles).length > 0 && (
+        <div 
+          className="glass-panel document-indexing-panel" 
+          style={{
+            position: 'fixed',
+            bottom: (downloadActive && isDownloadMinimized) ? '156px' : '24px',
+            right: '24px',
+            width: '340px',
+            padding: '16px',
+            borderRadius: '12px',
+            zIndex: 3400,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            background: 'rgba(21, 21, 22, 0.92)',
+            transition: 'bottom 0.3s ease'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <SpinnerIcon size={16} className="spinning" style={{ color: '#10b981' }} />
+              <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#ececec' }}>
+                Indexing Documents
+              </span>
+            </div>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '200px', overflowY: 'auto' }}>
+            {Object.entries(indexingActiveFiles).map(([filename, fileState]) => (
+              <div key={filename} style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderBottom: '1px solid rgba(255,255,255,0.04)', paddingBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span 
+                    style={{ fontSize: '0.75rem', fontWeight: '500', color: '#ececec', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '220px' }}
+                    title={filename}
+                  >
+                    {filename}
+                  </span>
+                  
+                  {fileState.status !== 'processing' && (
+                    <button 
+                      onClick={() => handleClearIndexingFile(filename)}
+                      style={{ background: 'transparent', border: 'none', color: '#8e8e8f', cursor: 'pointer', padding: '2px', display: 'flex', borderRadius: '4px' }}
+                      title="Clear status"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                
+                {fileState.status === 'processing' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ width: '100%', height: '5px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div 
+                        style={{ 
+                          width: `${fileState.progress}%`, 
+                          height: '100%', 
+                          background: 'linear-gradient(90deg, #10b981, #34d399)', 
+                          borderRadius: '3px', 
+                          transition: 'width 0.2s ease-out' 
+                        }}
+                      ></div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#b4b4b4' }}>
+                      <span>Generating embeddings...</span>
+                      <span>
+                        {fileState.processed_chunks}/{fileState.total_chunks || '?'} ({Math.round(fileState.progress)}%)
+                      </span>
+                    </div>
+                  </div>
+                ) : fileState.status === 'success' ? (
+                  <span style={{ fontSize: '0.7rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <SuccessIcon size={12} style={{ color: '#10b981' }} />
+                    Dizinlendi ({fileState.total_chunks} chunks)
+                  </span>
+                ) : (
+                  <span style={{ fontSize: '0.7rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '4px' }} title={fileState.error}>
+                    <ErrorIcon size={12} style={{ color: '#ef4444' }} />
+                    Hata: {fileState.error ? (fileState.error.length > 30 ? fileState.error.substring(0, 30) + '...' : fileState.error) : 'Bilinmeyen hata'}
+                  </span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}

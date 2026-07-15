@@ -46,6 +46,11 @@ download_state = {
 download_cancel_event = None
 download_lock = threading.Lock()
 
+# Global indexing states (tracks progress for uploaded/reindexed files)
+indexing_states = {}
+indexing_states_lock = threading.Lock()
+
+
 # Similarity calculation function
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:
     dot_product = sum(x * y for x, y in zip(v1, v2))
@@ -192,6 +197,9 @@ class ModelSelectRequest(BaseModel):
 class ModelDeleteRequest(BaseModel):
     model_alias: str
 
+class ReindexRequest(BaseModel):
+    filename: str
+
 @app.get("/api/status")
 def get_status():
     return {
@@ -258,17 +266,16 @@ def run_model_download_in_background(model_alias, chat_or_embed):
     
     try:
         model = manager.catalog.get_model(model_alias)
-        file_size_mb = 1000
+        
+        # Get the real file size from the SDK catalog, default to 0 (unknown)
+        file_size_mb = 0
         if hasattr(model, 'info') and model.info:
-            file_size_mb = getattr(model.info, 'file_size_mb', 1000) or 1000
+            file_size_mb = getattr(model.info, 'file_size_mb', 0) or 0
             
         last_time = [time.time()]
         last_net_bytes = [psutil.net_io_counters().bytes_recv]
-            
-        # Detect if it's a percentage (0.0 - 100.0) or raw MBs.
-        # ONNX chat models return percentage, embedding models return MBs.
-        is_percentage = (chat_or_embed == "chat")
-
+        start_net_bytes = last_net_bytes[0]
+        
         def progress_callback(progress_value):
             global download_state
             current_time = time.time()
@@ -276,15 +283,26 @@ def run_model_download_in_background(model_alias, chat_or_embed):
             
             with download_lock:
                 if download_state["status"] == "downloading":
-                    if is_percentage:
-                        percentage = min(round(progress_value, 2), 100.0)
-                        ratio = progress_value / 100.0
-                        downloaded_mb = ratio * file_size_mb
+                    # SDK always returns 0.0-100.0 percentage
+                    percentage = min(round(progress_value, 2), 100.0)
+                    
+                    # Calculate downloaded bytes from actual network traffic for accuracy
+                    current_net_total = psutil.net_io_counters().bytes_recv
+                    actual_downloaded_bytes = current_net_total - start_net_bytes
+                    actual_downloaded_mb = actual_downloaded_bytes / (1024 * 1024)
+                    
+                    # Determine total_mb: use SDK value if available, else estimate from progress
+                    if file_size_mb > 0:
                         total_mb = file_size_mb
+                        # Use percentage-based downloaded_mb for consistency with the progress bar
+                        downloaded_mb = (percentage / 100.0) * file_size_mb
                     else:
-                        total_mb = max(file_size_mb, progress_value)
-                        percentage = min(round((progress_value / total_mb) * 100, 2), 100.0) if total_mb > 0 else 0.0
-                        downloaded_mb = progress_value
+                        # No SDK file size - estimate from actual network data and progress
+                        if percentage > 0:
+                            total_mb = (actual_downloaded_mb / percentage) * 100.0
+                        else:
+                            total_mb = 0
+                        downloaded_mb = actual_downloaded_mb
                         
                     download_state["progress"] = percentage
                     download_state["downloaded_mb"] = round(downloaded_mb, 2)
@@ -537,23 +555,55 @@ def get_documents():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        
+        # Get pinned metadata
+        cursor.execute("SELECT file_name, is_pinned FROM document_metadata")
+        pinned_map = {r[0]: bool(r[1]) for r in cursor.fetchall()}
+        
+        # Get all chunk counts grouped by file and model
         cursor.execute("""
-            SELECT d.file_name, COUNT(d.text), COALESCE(m.is_pinned, 0), COALESCE(MAX(d.embedding_model), 'qwen3-embedding-8b')
-            FROM documents d
-            LEFT JOIN document_metadata m ON d.file_name = m.file_name
-            WHERE d.file_name IS NOT NULL
-            GROUP BY d.file_name
-            ORDER BY COALESCE(m.is_pinned, 0) DESC, d.file_name ASC
+            SELECT file_name, embedding_model, COUNT(id)
+            FROM documents
+            WHERE file_name IS NOT NULL
+            GROUP BY file_name, embedding_model
         """)
         rows = cursor.fetchall()
         conn.close()
-        return [{
-            "file_name": r[0] if r[0] else "Unknown File", 
-            "chunks_count": r[1], 
-            "is_pinned": bool(r[2]),
-            "embedding_model": r[3],
-            "is_compatible": r[3] == embedding_alias
-        } for r in rows]
+        
+        # Group by file_name
+        files_dict = {}
+        for file_name, model, count in rows:
+            if file_name not in files_dict:
+                files_dict[file_name] = {
+                    "file_name": file_name,
+                    "models": [],
+                    "active_chunks": 0,
+                    "is_compatible": False
+                }
+            if model:
+                files_dict[file_name]["models"].append(model)
+                if model == embedding_alias:
+                    files_dict[file_name]["active_chunks"] = count
+                    files_dict[file_name]["is_compatible"] = True
+
+        # Convert to FileResponse list
+        file_list = []
+        for file_name, info in files_dict.items():
+            # If compatible with active model, show active chunk count, else show total or count of first model
+            chunks_count = info["active_chunks"] if info["is_compatible"] else (rows[0][2] if rows else 0)
+            models_str = ", ".join(info["models"]) if info["models"] else "None"
+            
+            file_list.append({
+                "file_name": file_name,
+                "chunks_count": chunks_count,
+                "is_pinned": pinned_map.get(file_name, False),
+                "embedding_model": models_str,
+                "is_compatible": info["is_compatible"]
+            })
+            
+        # Sort: pinned first, then filename
+        file_list.sort(key=lambda x: (not x["is_pinned"], x["file_name"].lower()))
+        return file_list
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
@@ -779,6 +829,80 @@ def pin_document(filename: str, request: PinToggleRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def run_document_indexing_in_background(file_path, filename, embedding_alias):
+    global indexing_states, embedding_client
+    try:
+        from backend.ingest import extract_text, get_chunks
+        
+        # Initialize state to processing
+        with indexing_states_lock:
+            indexing_states[filename] = {
+                "status": "processing",
+                "progress": 0.0,
+                "processed_chunks": 0,
+                "total_chunks": 0,
+                "error": None
+            }
+            
+        raw_text = extract_text(file_path)
+        if not raw_text:
+            raise Exception("Metin çıkartılamadı veya bu dosya formatı desteklenmiyor.")
+            
+        chunks = get_chunks(raw_text)
+        if not chunks:
+            raise Exception("Belge boş veya anlamlı parçalara bölünemedi.")
+            
+        total_chunks = len(chunks)
+        with indexing_states_lock:
+            indexing_states[filename]["total_chunks"] = total_chunks
+            
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
+        cursor = conn.cursor()
+        
+        # Delete existing chunks for this file and active embedding model to prevent duplicates
+        cursor.execute("DELETE FROM documents WHERE file_name = ? AND embedding_model = ?", (filename, embedding_alias))
+        
+        processed_chunks = 0
+        for chunk in chunks:
+            if not chunk.strip():
+                processed_chunks += 1
+                progress = round((processed_chunks / total_chunks) * 100, 1)
+                with indexing_states_lock:
+                    indexing_states[filename]["processed_chunks"] = processed_chunks
+                    indexing_states[filename]["progress"] = progress
+                continue
+                
+            response = embedding_client.generate_embedding(chunk)
+            vector = response.data[0].embedding
+            vector_str = json.dumps(vector)
+            cursor.execute("INSERT INTO documents (text, embedding, file_name, embedding_model) VALUES (?, ?, ?, ?)", 
+                           (chunk, vector_str, filename, embedding_alias))
+            
+            processed_chunks += 1
+            progress = min(round((processed_chunks / total_chunks) * 100, 1), 100.0)
+            with indexing_states_lock:
+                indexing_states[filename]["processed_chunks"] = processed_chunks
+                indexing_states[filename]["progress"] = progress
+                
+        conn.commit()
+        conn.close()
+        
+        with indexing_states_lock:
+            indexing_states[filename]["status"] = "success"
+            indexing_states[filename]["progress"] = 100.0
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        with indexing_states_lock:
+            indexing_states[filename] = {
+                "status": "error",
+                "progress": 0.0,
+                "processed_chunks": 0,
+                "total_chunks": 0,
+                "error": str(e)
+            }
+
 @app.post("/api/upload")
 def upload_document(file: UploadFile = File(...)):
     global embedding_client
@@ -795,36 +919,60 @@ def upload_document(file: UploadFile = File(...)):
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
-        # Process and ingest the new file dynamically
-        from backend.ingest import extract_text, get_chunks
+        # Start indexing in background thread
+        thread = threading.Thread(
+            target=run_document_indexing_in_background,
+            args=(file_path, file.filename, embedding_alias)
+        )
+        thread.daemon = True
+        thread.start()
         
-        raw_text = extract_text(file_path)
-        if not raw_text:
-            raise HTTPException(status_code=400, detail="Text could not be extracted or the file type is not supported.")
-            
-        chunks = get_chunks(raw_text)
-        if not chunks:
-            raise HTTPException(status_code=400, detail="The file is empty or could not be chunked.")
-            
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        
-        for chunk in chunks:
-            if not chunk.strip():
-                continue
-            response = embedding_client.generate_embedding(chunk)
-            vector = response.data[0].embedding
-            vector_str = json.dumps(vector)
-            cursor.execute("INSERT INTO documents (text, embedding, file_name, embedding_model) VALUES (?, ?, ?, ?)", (chunk, vector_str, file.filename, embedding_alias))
-            
-        conn.commit()
-        conn.close()
-        
-        return {"status": "success", "filename": file.filename, "chunks": len(chunks)}
+        return {"status": "processing", "filename": file.filename}
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/documents/reindex")
+def reindex_document(request: ReindexRequest):
+    global embedding_client
+    if not embedding_client:
+        raise HTTPException(status_code=503, detail="Embedding model is not initialized yet.")
+        
+    try:
+        docs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "documents")
+        file_path = os.path.join(docs_dir, request.filename)
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"File not found: {request.filename}")
+            
+        # Start indexing in background thread
+        thread = threading.Thread(
+            target=run_document_indexing_in_background,
+            args=(file_path, request.filename, embedding_alias)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return {"status": "processing", "filename": request.filename}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/documents/indexing-status")
+def get_indexing_status():
+    global indexing_states
+    with indexing_states_lock:
+        return dict(indexing_states)
+
+@app.post("/api/documents/indexing-clear")
+def clear_indexing_status(request: ReindexRequest):
+    global indexing_states
+    with indexing_states_lock:
+        if request.filename in indexing_states:
+            del indexing_states[request.filename]
+        return {"status": "success"}
+
 
 @app.delete("/api/documents/{filename}")
 def delete_document(filename: str):

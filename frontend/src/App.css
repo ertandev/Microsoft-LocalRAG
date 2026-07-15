@@ -1297,4 +1297,25 @@
   }
 }
 
+.doc-compat-badge {
+  cursor: pointer;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: rgba(245, 158, 11, 0.05);
+  color: #f59e0b;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  font-weight: 500;
+  margin-top: 6px;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
 
+.doc-compat-badge:hover {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.45);
+}
