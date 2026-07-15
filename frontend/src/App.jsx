@@ -190,6 +190,7 @@ function App() {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const currentSessionIdRef = useRef(currentSessionId);
+  const isCreatingNewSessionRef = useRef(false);
 
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId;
@@ -346,6 +347,10 @@ function App() {
 
   // Load messages when current session changes
   useEffect(() => {
+    if (isCreatingNewSessionRef.current) {
+      isCreatingNewSessionRef.current = false;
+      return;
+    }
     if (currentSessionId) {
       fetchMessages(currentSessionId);
     } else {
@@ -912,6 +917,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: sessionId, title: tempTitle })
       });
+      isCreatingNewSessionRef.current = true;
       setCurrentSessionId(sessionId);
       await fetchSessions();
     }
@@ -1193,28 +1199,31 @@ function App() {
                           className={`session-item ${currentSessionId === session.id ? 'active' : ''} ${loadingSessions[session.id] ? 'loading' : ''} pinned`}
                           onClick={() => handleSelectSession(session.id)}
                         >
-                          <span className="session-icon">
-                            {loadingSessions[session.id] ? (
-                              <SpinnerIcon size={14} className="spinner-icon" style={{ color: '#3b82f6' }} />
-                            ) : (
-                              <ChatIcon size={16} />
-                            )}
-                          </span>
-                          <div className="session-info">
-                            <p className="session-title">{session.title}</p>
-                          </div>
-                          <div className="session-actions-wrapper">
-                            <button 
-                              className="pin-session-btn active" 
-                              onClick={(e) => handleTogglePinSession(e, session.id, session.is_pinned)}
-                              title="Unpin chat"
-                            >
-                              <PinIcon size={13} style={{ fill: 'currentColor' }} />
-                            </button>
-                            <button className="delete-session-btn" onClick={(e) => handleDeleteSession(e, session.id)} title="Delete chat">
-                              <TrashIcon size={14} />
-                            </button>
-                          </div>
+                          {loadingSessions[session.id] ? (
+                            <div className="sidebar-skeleton">
+                              <div className="sidebar-skeleton-icon"></div>
+                              <div className="sidebar-skeleton-line"></div>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="session-icon"><ChatIcon size={16} /></span>
+                              <div className="session-info">
+                                <p className="session-title">{session.title}</p>
+                              </div>
+                              <div className="session-actions-wrapper">
+                                <button 
+                                  className="pin-session-btn active" 
+                                  onClick={(e) => handleTogglePinSession(e, session.id, session.is_pinned)}
+                                  title="Unpin chat"
+                                >
+                                  <PinIcon size={13} style={{ fill: 'currentColor' }} />
+                                </button>
+                                <button className="delete-session-btn" onClick={(e) => handleDeleteSession(e, session.id)} title="Delete chat">
+                                  <TrashIcon size={14} />
+                                </button>
+                              </div>
+                            </>
+                          )}
                         </div>
                       ))}
                   </div>
@@ -1233,28 +1242,31 @@ function App() {
                         className={`session-item ${currentSessionId === session.id ? 'active' : ''} ${loadingSessions[session.id] ? 'loading' : ''}`}
                         onClick={() => handleSelectSession(session.id)}
                       >
-                        <span className="session-icon">
                           {loadingSessions[session.id] ? (
-                            <SpinnerIcon size={14} className="spinner-icon" style={{ color: '#3b82f6' }} />
+                            <div className="sidebar-skeleton">
+                              <div className="sidebar-skeleton-icon"></div>
+                              <div className="sidebar-skeleton-line"></div>
+                            </div>
                           ) : (
-                            <ChatIcon size={16} />
+                            <>
+                              <span className="session-icon"><ChatIcon size={16} /></span>
+                              <div className="session-info">
+                                <p className="session-title">{session.title}</p>
+                              </div>
+                              <div className="session-actions-wrapper">
+                                <button 
+                                  className="pin-session-btn" 
+                                  onClick={(e) => handleTogglePinSession(e, session.id, session.is_pinned)}
+                                  title="Pin chat"
+                                >
+                                  <PinIcon size={13} />
+                                </button>
+                                <button className="delete-session-btn" onClick={(e) => handleDeleteSession(e, session.id)} title="Delete chat">
+                                  <TrashIcon size={14} />
+                                </button>
+                              </div>
+                            </>
                           )}
-                        </span>
-                        <div className="session-info">
-                          <p className="session-title">{session.title}</p>
-                        </div>
-                        <div className="session-actions-wrapper">
-                          <button 
-                            className="pin-session-btn" 
-                            onClick={(e) => handleTogglePinSession(e, session.id, session.is_pinned)}
-                            title="Pin chat"
-                          >
-                            <PinIcon size={13} />
-                          </button>
-                          <button className="delete-session-btn" onClick={(e) => handleDeleteSession(e, session.id)} title="Delete chat">
-                            <TrashIcon size={14} />
-                          </button>
-                        </div>
                       </div>
                     ))}
                   {sessions.filter(s => !s.is_pinned && s.title.toLowerCase().includes(chatSearchQuery.toLowerCase())).length === 0 && 
@@ -1563,9 +1575,12 @@ function App() {
                 <SparkleIcon size={18} style={{ color: '#3b82f6' }} />
               </div>
               <div className="message-content">
-                <div className="bubble typing-bubble" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#8e8e8f', fontSize: '0.82rem', fontStyle: 'italic', padding: '0 4px' }}>
-                  <SpinnerIcon size={12} className="spinner-icon" style={{ color: '#8e8e8f' }} />
-                  <span>Generating response...</span>
+                <div className="bubble typing-bubble" style={{ padding: '0 4px' }}>
+                  <div className="skeleton-container">
+                    <div className="skeleton-line skeleton-short"></div>
+                    <div className="skeleton-line skeleton-medium"></div>
+                    <div className="skeleton-line skeleton-long"></div>
+                  </div>
                 </div>
               </div>
             </div>

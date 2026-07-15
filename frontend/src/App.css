@@ -132,18 +132,34 @@
 
 .session-item.loading {
   position: relative;
-  animation: pulseLoadingSession 1.5s ease-in-out infinite;
 }
 
-.session-item.loading .session-title {
-  color: #8e8e8f;
-  font-style: italic;
+.sidebar-skeleton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 0;
 }
 
-@keyframes pulseLoadingSession {
-  0% { opacity: 0.75; }
-  50% { opacity: 1; }
-  100% { opacity: 0.75; }
+.sidebar-skeleton-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.03) 75%);
+  background-size: 200% 100%;
+  animation: skeletonPulse 1.6s infinite linear;
+  flex-shrink: 0;
+}
+
+.sidebar-skeleton-line {
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.03) 75%);
+  background-size: 200% 100%;
+  animation: skeletonPulse 1.6s infinite linear;
+  flex: 1;
+  max-width: 140px;
 }
 
 .session-icon, .doc-icon {
@@ -445,8 +461,40 @@
 .typing-bubble {
   display: flex;
   align-items: center;
-  height: 32px;
-  padding: 0;
+  padding: 4px 0;
+  width: 100%;
+}
+
+.skeleton-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 280px;
+}
+
+.skeleton-line {
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.03) 75%);
+  background-size: 200% 100%;
+  animation: skeletonPulse 1.6s infinite linear;
+}
+
+.skeleton-short {
+  width: 35%;
+}
+
+.skeleton-medium {
+  width: 80%;
+}
+
+.skeleton-long {
+  width: 60%;
+}
+
+@keyframes skeletonPulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* Accordion for RAG context */
