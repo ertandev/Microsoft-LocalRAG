@@ -159,6 +159,11 @@ function App() {
   const chatboxDropdownRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const currentSessionIdRef = useRef(currentSessionId);
+
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId;
+  }, [currentSessionId]);
 
   const BACKEND_URL = 'http://localhost:8000';
 
@@ -167,6 +172,56 @@ function App() {
     const allModels = [...(availableModels.chat || []), ...(availableModels.embedding || [])];
     const model = allModels.find(m => m.alias === modelAlias);
     return model && model.file_size_mb ? `(${(model.file_size_mb / 1024).toFixed(2)} GB)` : '';
+  };
+
+  const getSuggestedCards = () => {
+    if (documents && documents.length > 0) {
+      const latestDoc = documents[documents.length - 1];
+      const name = latestDoc.file_name;
+      const cleanName = name.length > 25 ? name.substring(0, 22) + "..." : name;
+      
+      return [
+        {
+          title: `Summarize Document`,
+          subtitle: `Get a quick overview of ${cleanName}`,
+          prompt: `Can you summarize the main contents and purpose of this document?`,
+          file: name
+        },
+        {
+          title: `Key Findings & Dates`,
+          subtitle: `Extract key facts from ${cleanName}`,
+          prompt: `What are the key facts, main findings, dates, or action items in this document?`,
+          file: name
+        },
+        {
+          title: `Analyze Topics`,
+          subtitle: `Examine the topics in ${cleanName}`,
+          prompt: `What are the primary topics or themes discussed in this document?`,
+          file: name
+        }
+      ];
+    } else {
+      return [
+        {
+          title: "Summer School Duration",
+          subtitle: "Ask about the length of summer training program.",
+          prompt: "How long is the summer school training?",
+          file: null
+        },
+        {
+          title: "Weekly Schedule Details",
+          subtitle: "Find out what students will do in the third week.",
+          prompt: "What will students do in the 3rd week?",
+          file: null
+        },
+        {
+          title: "Intern Projects",
+          subtitle: "Learn about project development methods.",
+          prompt: "How do Microsoft interns develop their projects?",
+          file: null
+        }
+      ];
+    }
   };
 
   const showNotification = (message, type = 'info') => {
@@ -184,6 +239,41 @@ function App() {
     fetchAvailableModels();
   }, []);
 
+  // Automatic background reconnection polling if backend is offline
+  useEffect(() => {
+    let intervalId = null;
+    
+    if (!status.online) {
+      intervalId = setInterval(async () => {
+        try {
+          const res = await fetch(`${BACKEND_URL}/api/status`);
+          if (res.ok) {
+            const data = await res.json();
+            setStatus({
+              online: true,
+              chatModel: data.chat_model,
+              embeddingModel: data.embedding_model,
+              apiEndpoint: data.api_endpoint || 'http://localhost:8501 (Local)'
+            });
+            setSelectedChatModel(data.chat_model);
+            setSelectedEmbeddingModel(data.embedding_model);
+            
+            // Connection established, fetch all data
+            fetchDocuments();
+            fetchSessions();
+            fetchAvailableModels();
+          }
+        } catch (err) {
+          // Still offline
+        }
+      }, 3000);
+    }
+    
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [status.online]);
+
   // Scroll chat to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -191,6 +281,7 @@ function App() {
 
   // Load messages when current session changes
   useEffect(() => {
+    setLoading(false);
     if (currentSessionId) {
       fetchMessages(currentSessionId);
     } else {
@@ -435,10 +526,6 @@ function App() {
       if (res.ok) {
         const data = await res.json();
         setSessions(data);
-        if (data.length > 0 && !currentSessionId) {
-          // Varsayılan olarak en son sohbeti seç
-          setCurrentSessionId(data[0].id);
-        }
       }
     } catch (err) {
       console.error("Error fetching sessions:", err);
@@ -611,9 +698,8 @@ function App() {
     setDeleteTarget(null);
   };
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
+  const sendMessageText = async (text, fileMention = null) => {
+    if (!text.trim() || loading) return;
 
     // 1. Eğer aktif sohbet yoksa yeni bir session (oturum) ID'si oluşturuyoruz
     let sessionId = currentSessionId;
@@ -622,7 +708,7 @@ function App() {
       sessionId = crypto.randomUUID();
       isNewSession = true;
       
-      const tempTitle = input.length > 30 ? input.substring(0, 30) + "..." : input;
+      const tempTitle = text.length > 30 ? text.substring(0, 30) + "..." : text;
       // Backend'de session'ı oluştur
       await fetch(`${BACKEND_URL}/api/sessions`, {
         method: 'POST',
@@ -632,10 +718,12 @@ function App() {
       setCurrentSessionId(sessionId);
     }
 
+    const activeMention = fileMention || mentionedFile;
+
     const userMessage = { 
       role: 'user', 
-      content: input,
-      fileName: mentionedFile ? mentionedFile : undefined
+      content: text,
+      fileName: activeMention ? activeMention : undefined
     };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
@@ -672,7 +760,10 @@ function App() {
           score: data.score,
           fileName: data.file_name
         };
-        setMessages(prev => [...prev, botMessage]);
+        
+        if (currentSessionIdRef.current === sessionId) {
+          setMessages(prev => [...prev, botMessage]);
+        }
 
         // Asistan mesajını veritabanına kaydet
         await fetch(`${BACKEND_URL}/api/sessions/${sessionId}/messages`, {
@@ -689,23 +780,34 @@ function App() {
 
       } else {
         const errorData = await res.json();
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Error: ${errorData.detail || 'Something went wrong.'}`
-        }]);
+        if (currentSessionIdRef.current === sessionId) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: ${errorData.detail || 'Something went wrong.'}`
+          }]);
+        }
       }
     } catch (err) {
       console.error("Chat request failed:", err);
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: 'Could not communicate with the server. Please make sure the FastAPI backend server is running.'
-      }]);
+      if (currentSessionIdRef.current === sessionId) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: 'Could not communicate with the server. Please make sure the FastAPI backend server is running.'
+        }]);
+      }
     } finally {
-      setLoading(false);
+      if (currentSessionIdRef.current === sessionId) {
+        setLoading(false);
+      }
       // Başlıkları ve seans listesini güncelle
       fetchSessions();
       fetchDocuments();
     }
+  };
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    await sendMessageText(input, mentionedFile);
   };
 
   return (
@@ -1050,61 +1152,32 @@ function App() {
                 </p>
                 <div className="suggested-prompts-grid" style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
                   gap: '12px',
                   width: '100%',
                   maxWidth: '600px',
                   margin: '0 auto',
                   textAlign: 'left'
                 }}>
-                  <div 
-                    className="suggested-prompt-card" 
-                    onClick={() => setQuestion("How long is the summer school training?")}
-                    style={{
-                      padding: '16px',
-                      borderRadius: '12px',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      cursor: 'pointer',
-                      transition: 'background 0.15s ease',
-                      fontSize: '0.85rem',
-                      color: '#ececec'
-                    }}
-                  >
-                    <div style={{ fontWeight: '500', marginBottom: '4px' }}>Summer School Duration</div>
-                    <div style={{ color: '#8e8e8f' }}>Ask about the length of summer training program.</div>
-                  </div>
-                  <div 
-                    className="suggested-prompt-card" 
-                    onClick={() => setQuestion("What will students do in the 3rd week?")}
-                    style={{
-                      padding: '16px',
-                      borderRadius: '12px',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      cursor: 'pointer',
-                      transition: 'background 0.15s ease',
-                      fontSize: '0.85rem',
-                      color: '#ececec'
-                    }}
-                  >
-                    <div style={{ fontWeight: '500', marginBottom: '4px' }}>Weekly Schedule Details</div>
-                    <div style={{ color: '#8e8e8f' }}>Find out what students will do in the third week.</div>
-                  </div>
-                  <div 
-                    className="suggested-prompt-card" 
-                    onClick={() => setQuestion("How do Microsoft interns develop their projects?")}
-                    style={{
-                      padding: '16px',
-                      borderRadius: '12px',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      cursor: 'pointer',
-                      transition: 'background 0.15s ease',
-                      fontSize: '0.85rem',
-                      color: '#ececec'
-                    }}
-                  >
-                    <div style={{ fontWeight: '500', marginBottom: '4px' }}>Intern Projects</div>
-                    <div style={{ color: '#8e8e8f' }}>Learn about project development methods.</div>
-                  </div>
+                  {getSuggestedCards().map((card, idx) => (
+                    <div 
+                      key={idx}
+                      className="suggested-prompt-card" 
+                      onClick={() => sendMessageText(card.prompt, card.file)}
+                      style={{
+                        padding: '16px',
+                        borderRadius: '12px',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        cursor: 'pointer',
+                        transition: 'background 0.15s ease',
+                        fontSize: '0.85rem',
+                        color: '#ececec'
+                      }}
+                    >
+                      <div style={{ fontWeight: '600', marginBottom: '4px', color: '#ececec' }}>{card.title}</div>
+                      <div style={{ color: '#8e8e8f', fontSize: '0.75rem', lineHeight: '1.3' }}>{card.subtitle}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

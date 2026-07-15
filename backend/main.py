@@ -30,7 +30,7 @@ manager = None
 embedding_client = None
 local_client = None
 chat_alias = "phi-3.5-mini"
-embedding_alias = "qwen3-embedding-8b"
+embedding_alias = "qwen3-embedding-0.6b"
 
 # Global download state
 download_state = {
@@ -264,6 +264,10 @@ def run_model_download_in_background(model_alias, chat_or_embed):
         last_time = [time.time()]
         last_val = [0.0]
             
+        # Detect if it's a ratio (0.0 - 1.0) or raw MBs.
+        # ONNX chat models return ratio, embedding models return MBs.
+        is_ratio = (chat_or_embed == "chat")
+
         def progress_callback(progress_value):
             global download_state
             current_time = time.time()
@@ -271,15 +275,29 @@ def run_model_download_in_background(model_alias, chat_or_embed):
             
             with download_lock:
                 if download_state["status"] == "downloading":
-                    percentage = min(round((progress_value / file_size_mb) * 100, 2), 100.0)
+                    if is_ratio:
+                        percentage = min(round(progress_value * 100, 2), 100.0)
+                        downloaded_mb = progress_value * file_size_mb
+                        total_mb = file_size_mb
+                    else:
+                        total_mb = max(file_size_mb, progress_value)
+                        percentage = min(round((progress_value / total_mb) * 100, 2), 100.0) if total_mb > 0 else 0.0
+                        downloaded_mb = progress_value
+                        
                     download_state["progress"] = percentage
-                    download_state["downloaded_mb"] = round(progress_value, 2)
-                    download_state["total_mb"] = file_size_mb
+                    download_state["downloaded_mb"] = round(downloaded_mb, 2)
+                    download_state["total_mb"] = round(total_mb, 2)
                     
                     if delta_time >= 0.5:
-                        delta_mb = progress_value - last_val[0]
+                        if is_ratio:
+                            delta_mb = (progress_value - last_val[0]) * file_size_mb
+                        else:
+                            delta_mb = progress_value - last_val[0]
+                            
                         speed_mb_s = delta_mb / delta_time if delta_time > 0 else 0
-                        if speed_mb_s >= 1.0:
+                        if speed_mb_s > 100.0:
+                            download_state["speed"] = "Verifying cached files..."
+                        elif speed_mb_s >= 1.0:
                             download_state["speed"] = f"{round(speed_mb_s, 1)} MB/s"
                         else:
                             download_state["speed"] = f"{round(speed_mb_s * 1024, 0):.0f} KB/s"
@@ -339,6 +357,40 @@ def run_model_download_in_background(model_alias, chat_or_embed):
         with download_lock:
             download_state["status"] = status
             download_state["error"] = err_msg
+            
+        # Clean up partial download files from cache
+        try:
+            print(f"Cleaning up partial download files for {model_alias}...")
+            model = manager.catalog.get_model(model_alias)
+            
+            # Retry deletion on Windows due to asynchronous file locks
+            deleted = False
+            for i in range(5):
+                try:
+                    time.sleep(0.5)
+                    model.remove_from_cache()
+                    deleted = True
+                    print(f"Successfully cleaned up cache for {model_alias} via SDK.")
+                    break
+                except Exception as del_err:
+                    print(f"SDK deletion attempt {i+1} failed: {del_err}")
+            
+            if not deleted and hasattr(model, 'get_path'):
+                model_path = model.get_path()
+                if model_path:
+                    # Let's delete the version directory or the parent model name directory
+                    parent_path = os.path.dirname(model_path)
+                    if os.path.exists(parent_path):
+                        for i in range(5):
+                            try:
+                                time.sleep(0.5)
+                                shutil.rmtree(parent_path)
+                                print(f"Manually cleaned up model folder: {parent_path}")
+                                break
+                            except Exception as manual_del_err:
+                                print(f"Manual deletion attempt {i+1} failed: {manual_del_err}")
+        except Exception as cleanup_err:
+            print(f"Failed to clean up partial cache: {cleanup_err}")
             
     finally:
         with download_lock:

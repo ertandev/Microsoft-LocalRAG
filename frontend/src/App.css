@@ -880,31 +880,18 @@
 .pin-session-btn.active,
 .pin-doc-btn.active {
   opacity: 0.8 !important;
-  color: #f59e0b !important;
+  color: #ececec !important;
 }
 
 .pin-session-btn:hover,
-.pin-doc-btn:hover {
-  color: #f59e0b;
-}
-
-.session-item:hover .pin-session-btn,
-.doc-item:hover .pin-doc-btn {
-  opacity: 0.7;
-}
-
-.session-item:hover .pin-session-btn:hover,
 .doc-item:hover .pin-doc-btn:hover {
   opacity: 1;
   transform: scale(1.05);
 }
 
-.session-item.pinned {
-  border-left: 3px solid #f59e0b !important;
-}
-
+.session-item.pinned,
 .doc-item.pinned {
-  border-left: 3px solid #f59e0b !important;
+  /* Simple layout section division, no color highlight */
 }
 
 /* List section headers */
