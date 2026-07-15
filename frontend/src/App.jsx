@@ -1864,8 +1864,8 @@ function App() {
       </div>
 
       {showSettingsModal && (
-        <div className="confirm-modal-overlay">
-          <div className="model-settings-modal-content glass-panel">
+        <div className="confirm-modal-overlay" onClick={() => setShowSettingsModal(false)}>
+          <div className="model-settings-modal-content glass-panel" onClick={(e) => e.stopPropagation()}>
             <div className="model-settings-header">
               <h3>
                 <SettingsIcon size={18} style={{ color: '#ececec' }} />
@@ -2047,8 +2047,8 @@ function App() {
       )}
 
       {activeInspectorChunk && (
-        <div className="confirm-modal-overlay">
-          <div className="chunk-inspector-modal-content glass-panel">
+        <div className="confirm-modal-overlay" onClick={() => setActiveInspectorChunk(null)}>
+          <div className="chunk-inspector-modal-content glass-panel" onClick={(e) => e.stopPropagation()}>
             <div className="chunk-inspector-header">
               <h3>
                 <SearchIcon size={16} style={{ color: '#3b82f6' }} />
@@ -2128,8 +2128,8 @@ function App() {
       )}
 
       {downloadTargetModel && (
-        <div className="confirm-modal-overlay">
-          <div className="confirm-modal-content glass-panel" style={{ maxWidth: '420px' }}>
+        <div className="confirm-modal-overlay" onClick={() => setDownloadTargetModel(null)}>
+          <div className="confirm-modal-content glass-panel" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
             <div className="confirm-modal-header">
               <span className="confirm-modal-icon" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
                 <WarningIcon size={20} style={{ color: '#f59e0b' }} />
@@ -2226,8 +2226,8 @@ function App() {
       )}
 
       {deleteTarget && (
-        <div className="confirm-modal-overlay">
-          <div className="confirm-modal-content glass-panel">
+        <div className="confirm-modal-overlay" onClick={() => setDeleteTarget(null)}>
+          <div className="confirm-modal-content glass-panel" onClick={(e) => e.stopPropagation()}>
             <div className="confirm-modal-header">
               <span className="confirm-modal-icon">
                 <WarningIcon size={20} style={{ color: '#ef4444' }} />
@@ -2248,8 +2248,8 @@ function App() {
       )}
 
       {deleteModelTarget && (
-        <div className="confirm-modal-overlay" style={{ zIndex: 3200 }}>
-          <div className="confirm-modal-content glass-panel" style={{ maxWidth: '420px' }}>
+        <div className="confirm-modal-overlay" style={{ zIndex: 3200 }} onClick={() => setDeleteModelTarget(null)}>
+          <div className="confirm-modal-content glass-panel" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
             <div className="confirm-modal-header">
               <span className="confirm-modal-icon" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>
                 <WarningIcon size={20} style={{ color: '#ef4444' }} />
