@@ -21,18 +21,18 @@ try:
 except ImportError:
     HAS_NUMPY = False
 
-def get_db_path():
+def get_project_root():
     if getattr(sys, 'frozen', False):
-        return os.path.join(os.path.dirname(sys.executable), "knowledge_base.db")
-    return os.path.join(os.path.dirname(__file__), "knowledge_base.db")
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def get_db_path():
+    return os.path.join(get_project_root(), "knowledge_base.db")
 
 DB_PATH = get_db_path()
 
 def get_docs_dir():
-    if getattr(sys, 'frozen', False):
-        path = os.path.join(os.path.dirname(sys.executable), "documents")
-    else:
-        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "documents")
+    path = os.path.join(get_project_root(), "documents")
     if not os.path.exists(path):
         os.makedirs(path, exist_ok=True)
     return path
@@ -1217,7 +1217,10 @@ def pin_document(filename: str, request: PinToggleRequest):
 def run_document_indexing_in_background(file_path, filename, embedding_alias):
     global indexing_states, embedding_client
     try:
-        from backend.ingest import extract_text, get_chunks
+        try:
+            from backend.ingest import extract_text, get_chunks
+        except ImportError:
+            from ingest import extract_text, get_chunks
         
         # Initialize state to processing
         with indexing_states_lock:

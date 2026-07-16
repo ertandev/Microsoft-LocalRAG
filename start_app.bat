@@ -1,30 +1,30 @@
 @echo off
-title Yerel RAG Sistemi Baslatici
+title Local RAG System Launcher
 echo ==============================================
-echo        Yerel RAG Yapay Zeka Asistani
+echo        Local RAG AI Assistant
 echo ==============================================
 echo.
 
-echo 1. Backend Sunucusu (FastAPI) yeni pencerede baslatiliyor...
-start "RAG Backend - FastAPI" cmd /k "echo FastAPI Sunucusu Calisiyor... && .venv\Scripts\uvicorn backend.main:app --port 8000 --reload"
+echo 1. Launching Backend Server (FastAPI) in a new window...
+start "RAG Backend - FastAPI" cmd /k "echo FastAPI Server is running... && .venv\Scripts\uvicorn backend.main:app --port 8000 --reload"
 
 timeout /t 3 /nobreak >nul
 
-echo 2. Masaustu uygulama penceresi baslatiliyor...
-start msedge.exe --app=http://localhost:5173
+echo 2. Opening chat page in browser...
+start http://localhost:5173
 
 echo ==============================================
-echo [BASARI] Yerel RAG Yapay Zeka Sistemi Baslatildi!
+echo [SUCCESS] Local RAG AI System Started!
 echo.
-echo  * Backend Adresi: http://localhost:8000
-echo  * Arayuz Adresi: http://localhost:5173
-echo  * API Dokumantasyonu: http://localhost:8000/docs
+echo  * Backend Address: http://localhost:8000
+echo  * Frontend Address: http://localhost:5173
+echo  * API Documentation: http://localhost:8000/docs
 echo.
-echo  Uygulamayi kapatmak icin bu pencereyi
-echo  ve acilan diger siyah pencereyi kapatabilirsiniz.
+echo  To close the application, you can close this
+echo  window and the other active terminal window.
 echo ==============================================
 echo.
 
-echo 3. Frontend (React) bu pencerede baslatiliyor...
+echo 3. Launching Frontend (React) in this window...
 cd frontend
 npm run dev

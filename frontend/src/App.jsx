@@ -2043,21 +2043,36 @@ function App() {
               </div>
             </div>
 
-            <div className="model-settings-actions">
+            <div className="model-settings-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <button 
+                type="button"
                 className="confirm-btn-cancel" 
-                onClick={() => setShowSettingsModal(false)}
+                style={{ marginRight: 'auto', border: '1px dashed rgba(239, 68, 68, 0.4)', color: '#ef4444' }}
+                onClick={() => {
+                  setTopK(3);
+                  setSimilarityThreshold(0.15);
+                  setStrictMode(true);
+                  showNotification("Settings reset to defaults!", "info");
+                }}
               >
-                Cancel
+                Reset to Defaults
               </button>
-              <button 
-                className="confirm-btn-danger" 
-                style={{ background: '#3b82f6' }}
-                onClick={handleApplyModelSettings}
-                disabled={!selectedEmbeddingModel}
-              >
-                Apply Changes
-              </button>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button 
+                  className="confirm-btn-cancel" 
+                  onClick={() => setShowSettingsModal(false)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className="confirm-btn-danger" 
+                  style={{ background: '#3b82f6' }}
+                  onClick={handleApplyModelSettings}
+                  disabled={!selectedEmbeddingModel}
+                >
+                  Apply Changes
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2389,9 +2404,13 @@ function App() {
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <SpinnerIcon size={16} className="spinning" style={{ color: '#10b981' }} />
+              {Object.values(indexingActiveFiles).some(f => f.status === 'processing') ? (
+                <SpinnerIcon size={16} className="spinning" style={{ color: '#10b981' }} />
+              ) : (
+                <SuccessIcon size={16} style={{ color: '#10b981' }} />
+              )}
               <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#ececec' }}>
-                Indexing Documents
+                {Object.values(indexingActiveFiles).some(f => f.status === 'processing') ? 'Indexing Documents' : 'Indexing Complete'}
               </span>
             </div>
           </div>

@@ -44,3 +44,12 @@ Desktop.ini
 # Project specific
 documents/
 .agents/
+
+# PyInstaller Build Artifacts & Executables
+backend/build/
+backend/dist/
+backend/LocalRAG.spec
+build/
+dist/
+*.spec
+*.exe

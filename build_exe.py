@@ -50,7 +50,7 @@ def main():
     # --add-data "static;static" bundles the backend/static folder into the binary
     # --noconsole keeps it running cleanly in the background, but since it's a CLI server, console helps with debugging. Let's make it console-enabled for logs.
     pyinstaller_cmd = (
-        f'"{venv_pyinstaller}" --onefile --clean --add-data "static;static" '
+        f'"{venv_pyinstaller}" --onefile --noconsole --clean --add-data "static;static" '
         f'--collect-all foundry_local_sdk --collect-all foundry_local_core_winml '
         f'--collect-all onnxruntime_core --collect-all onnxruntime_genai_core '
         f'--collect-all webview '
@@ -60,15 +60,25 @@ def main():
 
     print("=== Step 4: Moving Executable to Root ===")
     src_exe = os.path.join(backend_dir, "dist", "LocalRAG.exe")
-    dest_exe = os.path.join(root_dir, "LocalRAG.exe")
+    dest_exe = os.path.join(root_dir, "LocalRAG-v1.0.0-win-x64.exe")
+    old_exe = os.path.join(root_dir, "LocalRAG.exe")
 
     if os.path.exists(dest_exe):
-        os.remove(dest_exe)
+        try:
+            os.remove(dest_exe)
+        except Exception:
+            pass
+            
+    if os.path.exists(old_exe):
+        try:
+            os.remove(old_exe)
+        except Exception:
+            pass
 
     if os.path.exists(src_exe):
         shutil.move(src_exe, dest_exe)
         print(f"\n[SUCCESS] Compiled standalone executable created at: {dest_exe}")
-        print("Double-click LocalRAG.exe to launch the application.")
+        print(f"Double-click {os.path.basename(dest_exe)} to launch the application.")
     else:
         print("\n[ERROR] Compiled executable not found. Check PyInstaller outputs.")
 
