@@ -10,8 +10,8 @@ start "RAG Backend - FastAPI" cmd /k "echo FastAPI Sunucusu Calisiyor... && .ven
 
 timeout /t 3 /nobreak >nul
 
-echo 2. Tarayicida sohbet sayfasi aciliyor...
-start http://localhost:5173
+echo 2. Masaustu uygulama penceresi baslatiliyor...
+start msedge.exe --app=http://localhost:5173
 
 echo ==============================================
 echo [BASARI] Yerel RAG Yapay Zeka Sistemi Baslatildi!

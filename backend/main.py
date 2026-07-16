@@ -1,7 +1,10 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse as StarletteFileResponse
 from pydantic import BaseModel
 import shutil
+import sys
 import sqlite3
 import json
 import math
@@ -18,7 +21,21 @@ try:
 except ImportError:
     HAS_NUMPY = False
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "knowledge_base.db")
+def get_db_path():
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.dirname(sys.executable), "knowledge_base.db")
+    return os.path.join(os.path.dirname(__file__), "knowledge_base.db")
+
+DB_PATH = get_db_path()
+
+def get_docs_dir():
+    if getattr(sys, 'frozen', False):
+        path = os.path.join(os.path.dirname(sys.executable), "documents")
+    else:
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "documents")
+    if not os.path.exists(path):
+        os.makedirs(path, exist_ok=True)
+    return path
 
 app = FastAPI(title="Local RAG API", description="FastAPI Backend for local RAG chatbot using Microsoft Foundry Local")
 
@@ -129,10 +146,12 @@ def initialize_system_in_background():
         config = Configuration(app_name="local_rag_app")
         try:
             FoundryLocalManager.initialize(config)
-        except Exception:
-            # Already initialized
-            pass
+        except Exception as e:
+            print(f"DEBUG ERROR during initialize: {e}")
+            import traceback
+            traceback.print_exc()
         manager = FoundryLocalManager.instance
+        print(f"DEBUG manager instance: {manager}")
         
         # Step 2: Load or download embedding model
         with startup_lock:
@@ -373,6 +392,8 @@ def startup_event():
         thread = threading.Thread(target=initialize_system_in_background)
         thread.daemon = True
         thread.start()
+
+
 
     except Exception as e:
         print(f"Error during startup initialization: {e}")
@@ -1275,9 +1296,7 @@ def upload_document(file: UploadFile = File(...)):
         
     try:
         # Save file to documents directory
-        docs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "documents")
-        if not os.path.exists(docs_dir):
-            os.makedirs(docs_dir)
+        docs_dir = get_docs_dir()
             
         file_path = os.path.join(docs_dir, file.filename)
         with open(file_path, "wb") as buffer:
@@ -1304,7 +1323,7 @@ def reindex_document(request: ReindexRequest):
         raise HTTPException(status_code=503, detail="Embedding model is not initialized yet.")
         
     try:
-        docs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "documents")
+        docs_dir = get_docs_dir()
         file_path = os.path.join(docs_dir, request.filename)
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail=f"File not found: {request.filename}")
@@ -1350,7 +1369,7 @@ def delete_document(filename: str):
         conn.close()
         
         # Delete file from local documents directory
-        docs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "documents")
+        docs_dir = get_docs_dir()
         file_path = os.path.join(docs_dir, filename)
         if os.path.exists(file_path):
             os.remove(file_path)
@@ -1381,3 +1400,60 @@ def update_settings(req: SettingsUpdateRequest):
         return get_db_settings()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Helper to resolve static files directory path under PyInstaller freezing
+def get_static_dir():
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, "static")
+    # In development, look for a static directory next to main.py
+    return os.path.join(os.path.dirname(__file__), "static")
+
+# Serve React static assets
+static_dir = get_static_dir()
+if os.path.exists(static_dir):
+    assets_dir = os.path.join(static_dir, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    # Fallback to index.html for all client-side React routes
+    @app.get("/{fallback_path:path}")
+    async def serve_frontend(fallback_path: str):
+        # Ignore API calls or documentation
+        if fallback_path.startswith("api/") or fallback_path.startswith("docs") or fallback_path.startswith("openapi.json"):
+            raise HTTPException(status_code=404)
+        
+        # Check if requested path is a real file inside the static directory
+        file_path = os.path.join(static_dir, fallback_path)
+        if os.path.isfile(file_path):
+            return StarletteFileResponse(file_path)
+            
+        # Fallback to React index
+        index_file = os.path.join(static_dir, "index.html")
+        if os.path.exists(index_file):
+            return StarletteFileResponse(index_file)
+        raise HTTPException(status_code=404, detail="Frontend build files not found.")
+
+if __name__ == "__main__":
+    import uvicorn
+    import webview
+    
+    # Start FastAPI/uvicorn server in a background thread
+    def start_server():
+        uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
+        
+    server_thread = threading.Thread(target=start_server)
+    server_thread.daemon = True
+    server_thread.start()
+    
+    # Wait for FastAPI server to initialize
+    time.sleep(1.5)
+    
+    # Open PyWebView native standalone desktop window
+    webview.create_window(
+        title="Local RAG Assistant",
+        url="http://127.0.0.1:8000",
+        width=1280,
+        height=800,
+        resizable=True
+    )
+    webview.start()

@@ -201,7 +201,16 @@ function App() {
     currentSessionIdRef.current = currentSessionId;
   }, [currentSessionId]);
 
-  const BACKEND_URL = 'http://localhost:8000';
+  const getBackendUrl = () => {
+    if (typeof window !== 'undefined') {
+      if (window.location.hostname === 'localhost' && window.location.port === '5173') {
+        return 'http://localhost:8000';
+      }
+      return `${window.location.protocol}//${window.location.host}`;
+    }
+    return 'http://localhost:8000';
+  };
+  const BACKEND_URL = getBackendUrl();
 
   const getModelSizeString = (modelAlias) => {
     if (!modelAlias) return '';
@@ -419,6 +428,9 @@ function App() {
       }, 1000);
     }
     
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [downloadActive, status.chatModel, status.embeddingModel]);
 
   // Polling for document indexing status
