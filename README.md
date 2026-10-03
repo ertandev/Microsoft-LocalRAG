@@ -1,4 +1,4 @@
-# LocalRAG Assistant 🤖
+# <img src="https://api.iconify.design/lucide:bot.svg?color=%2338bdf8" width="28" height="28" align="center" /> LocalRAG Assistant
 
 Developed as part of the **Microsoft Summer Internship Program**, **LocalRAG Assistant** is a fully offline, privacy-centric Retrieval-Augmented Generation (RAG) system. It allows users to index their local documents (PDF, DOCX, PPTX, TXT) and chat with them using local Large Language Models (LLMs) and Embeddings—ensuring that no data ever leaves the local machine.
 
@@ -6,32 +6,32 @@ The project is built on top of the **Microsoft Foundry Local SDK**, utilizing Wi
 
 ---
 
-## 📖 Table of Contents
+## <img src="https://api.iconify.design/lucide:book-open.svg?color=%23818cf8" width="20" height="20" align="center" /> Table of Contents
 1. [Key Features](#-key-features)
 2. [Architecture](#-architecture)
-3. [Prerequisites](#%EF%B8%8F-prerequisites)
+3. [Prerequisites](#-prerequisites)
 4. [Getting Started](#-getting-started)
    - [Development Mode](#development-mode)
    - [Packaging Standalone App](#packaging-standalone-app)
 5. [Configuration & Customization](#-configuration--customization)
 6. [Project Structure](#-project-structure)
-7. [Turkish Version / Türkçe Sürüm](#localrag-asistanı-tr-)
+7. [Turkish Version / Türkçe Sürüm](#-localrag-asistanı-tr)
 
 ---
 
-## ✨ Key Features
-- **100% Offline & Private:** No APIs, no cloud requests. All document indexing, vector searches, and LLM inferences happen locally.
-- **WinML Acceleration:** Leverages DirectX/WinML GPU acceleration via the Microsoft Foundry Local SDK for fast offline performance on Windows machines.
-- **Multiple Model Support:**
+## <img src="https://api.iconify.design/lucide:sparkles.svg?color=%23818cf8" width="20" height="20" align="center" /> Key Features
+- <img src="https://api.iconify.design/lucide:shield-check.svg?color=%2334d399" width="16" height="16" align="center" /> **100% Offline & Private:** No APIs, no cloud requests. All document indexing, vector searches, and LLM inferences happen locally.
+- <img src="https://api.iconify.design/lucide:zap.svg?color=%2338bdf8" width="16" height="16" align="center" /> **WinML Acceleration:** Leverages DirectX/WinML GPU acceleration via the Microsoft Foundry Local SDK for fast offline performance on Windows machines.
+- <img src="https://api.iconify.design/lucide:cpu.svg?color=%23a78bfa" width="16" height="16" align="center" /> **Multiple Model Support:**
   - **Chat LLM:** `phi-3.5-mini` (default)
   - **Embedding Models:** `qwen3-embedding-0.6b` (default, fast) and `qwen3-embedding-8b` (high-accuracy)
-- **Advanced RAG Control:** Slide parameters in real-time to adjust Top-K context count, Similarity Threshold filters, or enable/disable Strict Fact-Checking constraints.
-- **Clean Responsive Desktop UI:** Beautiful sidebar navigation, suggested prompt cards, document upload managers, inline markdown rendering, source document citations, and chunk-level similarity analysis inspect panels.
-- **Standalone Desktop Execution:** Package the entire app into a single `.exe` file that boots up in a borderless native `pywebview` frame without console spam.
+- <img src="https://api.iconify.design/lucide:sliders-horizontal.svg?color=%23fbbf24" width="16" height="16" align="center" /> **Advanced RAG Control:** Slide parameters in real-time to adjust Top-K context count, Similarity Threshold filters, or enable/disable Strict Fact-Checking constraints.
+- <img src="https://api.iconify.design/lucide:layout.svg?color=%2338bdf8" width="16" height="16" align="center" /> **Clean Responsive Desktop UI:** Beautiful sidebar navigation, suggested prompt cards, document upload managers, inline markdown rendering, source document citations, and chunk-level similarity analysis inspect panels.
+- <img src="https://api.iconify.design/lucide:package.svg?color=%23818cf8" width="16" height="16" align="center" /> **Standalone Desktop Execution:** Package the entire app into a single `.exe` file that boots up in a borderless native `pywebview` frame without console spam.
 
 ---
 
-## 🏗️ Architecture
+## <img src="https://api.iconify.design/lucide:layers.svg?color=%23a78bfa" width="20" height="20" align="center" /> Architecture
 
 ```mermaid
 graph TD
@@ -48,14 +48,14 @@ graph TD
 
 ---
 
-## 🛠️ Prerequisites
+## <img src="https://api.iconify.design/lucide:wrench.svg?color=%2338bdf8" width="20" height="20" align="center" /> Prerequisites
 - **OS:** Windows 10/11 (64-bit) with DirectX 12 compatible GPU.
 - **Python:** Version 3.10 or 3.11.
 - **Node.js:** Version 18+.
 
 ---
 
-## 🚀 Getting Started
+## <img src="https://api.iconify.design/lucide:play.svg?color=%2334d399" width="20" height="20" align="center" /> Getting Started
 
 ### Development Mode
 
@@ -96,7 +96,7 @@ To package the entire project into a single, clean `.exe` desktop application:
 
 ---
 
-## ⚙️ Configuration & Customization
+## <img src="https://api.iconify.design/lucide:sliders.svg?color=%2338bdf8" width="20" height="20" align="center" /> Configuration & Customization
 Inside the **Settings Modal** (accessible via the gear icon in the app header):
 - **Local RAG Context Count (Top-K):** Set how many context blocks (paragraphs) are retrieved.
 - **Similarity Search Threshold:** Exclude chunks matching below a specified percentage.
@@ -105,7 +105,7 @@ Inside the **Settings Modal** (accessible via the gear icon in the app header):
 
 ---
 
-## 📂 Project Structure
+## <img src="https://api.iconify.design/lucide:folder-tree.svg?color=%23818cf8" width="20" height="20" align="center" /> Project Structure
 ```
 ├── LocalRAG-v1.0.0-win-x64.exe  # Standalone packaged Windows desktop app
 ├── backend/
@@ -128,7 +128,7 @@ Inside the **Settings Modal** (accessible via the gear icon in the app header):
 <br/>
 <br/>
 
-# LocalRAG Asistanı (TR) 🇹🇷
+# <img src="https://api.iconify.design/lucide:bot.svg?color=%2338bdf8" width="28" height="28" align="center" /> LocalRAG Asistanı (TR)
 
 **Microsoft Yaz Stajı Programı** kapsamında geliştirilen **LocalRAG Asistanı**, tamamen çevrimdışı (offline) çalışan, veri gizliliğini temel alan bir Doküman Tabanlı Soru-Cevap (RAG) sistemidir. Kullanıcıların PDF, DOCX, PPTX ve TXT biçimindeki yerel belgelerini indekslemesini ve bu belgelerle yapay zeka aracılığıyla güvenli bir şekilde sohbet etmesini sağlar. Verileriniz asla bilgisayarınızdan dışarı çıkmaz.
 
@@ -136,19 +136,19 @@ Proje, **Microsoft Foundry Local SDK** üzerine inşa edilmiştir ve Phi-3.5 mod
 
 ---
 
-## ✨ Temel Özellikler
-- **%100 Çevrimdışı ve Güvenli:** API anahtarlarına ve bulut bağlantılarına ihtiyaç duymaz. Tüm veri indeksleme, vektör arama ve yapay zeka işlemleri yerel olarak yapılır.
-- **WinML Donanım Hızlandırması:** Windows GPU'nuzu DirectX/WinML kullanarak tam kapasite çalıştırır ve Phi-3.5 modellerini yüksek hızda çalıştırır.
-- **Model Çeşitliliği:**
+## <img src="https://api.iconify.design/lucide:sparkles.svg?color=%23818cf8" width="20" height="20" align="center" /> Temel Özellikler
+- <img src="https://api.iconify.design/lucide:shield-check.svg?color=%2334d399" width="16" height="16" align="center" /> **%100 Çevrimdışı ve Güvenli:** API anahtarlarına ve bulut bağlantılarına ihtiyaç duymaz. Tüm veri indeksleme, vektör arama ve yapay zeka işlemleri yerel olarak yapılır.
+- <img src="https://api.iconify.design/lucide:zap.svg?color=%2338bdf8" width="16" height="16" align="center" /> **WinML Donanım Hızlandırması:** Windows GPU'nuzu DirectX/WinML kullanarak tam kapasite çalıştırır ve Phi-3.5 modellerini yüksek hızda çalıştırır.
+- <img src="https://api.iconify.design/lucide:cpu.svg?color=%23a78bfa" width="16" height="16" align="center" /> **Model Çeşitliliği:**
   - **Sohbet Modeli:** `phi-3.5-mini` (Varsayılan)
   - **Vektör Modeli:** `qwen3-embedding-0.6b` (Hızlı, Varsayılan) ve `qwen3-embedding-8b` (Yüksek Doğruluk)
-- **Gelişmiş RAG Ayarları:** Top-K bağlam sayısını, benzerlik eşiği (Similarity Threshold) yüzdesini ayarlayabilir veya katı bilgi doğrulama filtresini (Strict Mode) aktif edebilirsiniz.
-- **Responsive Masaüstü Arayüzü:** Akıcı kenar çubuğu çekmece menüsü, markdown desteği, belge indeksleme durum paneli ve kaynak döküman alıntı detaylarını gösteren gelişmiş arayüz tasarımı.
-- **Tek Dosya Masaüstü Uygulamasını Derleme (.exe):** Tüm projeyi hiçbir terminal penceresi açılmaksızın doğrudan kendi özel penceresinde açılan tek bir `.exe` masaüstü dosyasına paketleyebilirsiniz.
+- <img src="https://api.iconify.design/lucide:sliders-horizontal.svg?color=%23fbbf24" width="16" height="16" align="center" /> **Gelişmiş RAG Ayarları:** Top-K bağlam sayısını, benzerlik eşiği (Similarity Threshold) yüzdesini ayarlayabilir veya katı bilgi doğrulama filtresini (Strict Mode) aktif edebilirsiniz.
+- <img src="https://api.iconify.design/lucide:layout.svg?color=%2338bdf8" width="16" height="16" align="center" /> **Responsive Masaüstü Arayüzü:** Akıcı kenar çubuğu çekmece menüsü, markdown desteği, belge indeksleme durum paneli ve kaynak döküman alıntı detaylarını gösteren gelişmiş arayüz tasarımı.
+- <img src="https://api.iconify.design/lucide:package.svg?color=%23818cf8" width="16" height="16" align="center" /> **Tek Dosya Masaüstü Uygulamasını Derleme (.exe):** Tüm projeyi hiçbir terminal penceresi açılmaksızın doğrudan kendi özel penceresinde açılan tek bir `.exe` masaüstü dosyasına paketleyebilirsiniz.
 
 ---
 
-## 🚀 Başlangıç
+## <img src="https://api.iconify.design/lucide:play.svg?color=%2334d399" width="20" height="20" align="center" /> Başlangıç
 
 ### Geliştirici Modu (Developer Mode)
 
